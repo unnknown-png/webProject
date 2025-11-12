@@ -26,7 +26,7 @@ Release/
 *.csproj.user
 
 # Solution(s) (specific file you requested to ignore)
-webService.sln
+webProject.sln
 
 # Common secrets / env
 secrets.json

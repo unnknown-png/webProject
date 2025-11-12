@@ -1,0 +1,71 @@
+# Base .gitignore file
+# =======================================
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+.vs/
+
+# Rider / ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Build outputs
+bin/
+obj/
+Debug/
+Release/
+
+# Visual Studio user settings
+*.user
+*.suo
+*.userosscache
+*.csproj.user
+
+# Solution(s) (specific file you requested to ignore)
+webService.sln
+
+# Common secrets / env
+secrets.json
+.env
+
+# Databases / logs
+*.db
+*.log
+
+# Node
+node_modules/
+
+# OS Thumbs
+Thumbs.db
+
+# NuGet / packaging
+*.nupkg
+packages/
+
+# Test results / coverage
+TestResults/
+*.trx
+coverage/
+*.coverage
+
+# Publish / artifacts
+publish/
+artifacts/
+
+# Misc
+*.cache
+*.pid
+*.seed
+
+# Static generated / local build folders
+wwwroot/dist/
+
+# Keep workspace files out
+*.sublime-workspace
+
+# End of .gitignore
+

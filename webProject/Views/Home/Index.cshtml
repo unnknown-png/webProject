@@ -1,0 +1,69 @@
+﻿@{
+	ViewData["Title"] = "Home";
+}
+
+<div class="wrap" id="home-wrap" role="application">
+	<header class="site-header" role="banner">
+		<div>
+			<h1>Home</h1>
+		</div>
+	</header>
+
+	<!-- Controls moved here: full-width container above main -->
+	<div class="controls" role="region" aria-label="Контролі матриці">
+		<div class="controls-left">
+			<label for="sizeInput" class="hint">Розмір матриці</label>
+			<input id="sizeInput" type="number" min="1" value="5" aria-label="matrix size input" />
+
+			<div class="controls-group">
+				<button id="rand" title="Заповнити випадково">Random</button>
+				<button id="clear" title="Очистити матрицю">Clear</button>
+				<button id="solve" class="primary" title="Розв'язати систему">Solve</button>
+			</div>
+		</div>
+
+		<div class="controls-right">
+			<button id="themeToggle" title="Перемкнути тему">Toggle theme</button>
+		</div>
+	</div>
+
+	<main class="main" role="main">
+		<section id="matrix-section" class="panel matrix-panel" aria-labelledby="matrix-title">
+			<div class="panel-head">
+				<strong id="matrix-title">Matrix and vector of the right sides</strong>
+				<small class="hint">Enter numbers manually or use Random</small>
+			</div>
+
+			<div class="matrix-wrap" id="matrixWrap" aria-live="polite">
+				<!-- matrix will be injected here -->
+			</div>
+
+			<div class="status" aria-hidden="false">
+				<div>Progress: <span id="progressText">idle</span></div>
+				<div class="progress" aria-hidden="false"><i id="progressBar"></i></div>
+			</div>
+
+			<div id="result" class="result" hidden></div>
+		</section>
+
+	</main>
+</div>
+
+<!-- History container (separate) -->
+<div class="wrap" id="history-wrap" role="application">
+	<header class="site-header" role="banner" aria-hidden="false">
+		<div>
+			<h2>History</h2>
+		</div>
+	</header>
+	<!-- History moved below main so it can be scrolled independently -->
+	<section id="history-section" class="history-container panel" aria-labelledby="history-title">
+		<div class="history-list" id="history"></div>
+
+		<div class="history-controls">
+			<button id="clearHistory" class="danger">Clear history</button>
+			<button id="export" title="Export history">Export</button>
+		</div>
+	</section>
+</div>
+

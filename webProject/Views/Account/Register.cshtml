@@ -1,0 +1,54 @@
+@model webProject.Models.RegisterViewModel
+@{
+    ViewData["Title"] = ViewData["Title"] ?? "Register";
+}
+
+@section HeadContent {
+    <style>
+        /* Small layout refinements for register page */
+        .auth-panel { max-width: 540px; margin: 52px auto; padding: 22px; }
+        .auth-panel .site-header { margin-bottom: 20px; }
+        .auth-panel .subtitle { color: var(--muted); }
+        .field-row { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+        .auth-actions { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:10px; }
+        .auth-actions .left { color: var(--muted); }
+    </style>
+}
+
+<div class="wrap auth-panel panel">
+    <div class="site-header">
+        <h1>Gauss Solver</h1>
+        <div class="subtitle">Create an account for a better experience</div>
+    </div>
+
+    <form asp-action="Register" method="post">
+        <div class="field-row">
+            <label asp-for="Email"></label>
+            <input asp-for="Email" />
+            <span class="hint" asp-validation-for="Email"></span>
+        </div>
+
+        <div class="field-row">
+            <label asp-for="Password"></label>
+            <input asp-for="Password" />
+            <span class="hint" asp-validation-for="Password"></span>
+        </div>
+
+        <div class="field-row">
+            <label asp-for="ConfirmPassword"></label>
+            <input asp-for="ConfirmPassword" />
+            <span class="hint" asp-validation-for="ConfirmPassword"></span>
+        </div>
+
+        <div class="auth-actions">
+            <div class="left"><a class="btn" href="@Url.Action("Login","Account")">Back to Log In</a></div>
+            <div class="right"><button class="btn primary" type="submit">Register</button></div>
+        </div>
+
+        @Html.AntiForgeryToken()
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

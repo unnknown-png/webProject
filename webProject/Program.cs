@@ -1,11 +1,28 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using webProject.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+
+// Register RunId provider (unique per application run)
+var runId = Guid.NewGuid().ToString();
+builder.Services.AddSingleton<IRunIdProvider>(new RunIdProvider(runId));
+
+// Configure cookie authentication (simple cookie auth for demo purposes)
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Account/Login";
+        options.AccessDeniedPath = "/Account/Login";
+        options.Cookie.Name = "GaussAuth";
+        options.Cookie.HttpOnly = true;
+    });
 
 var app = builder.Build();
 
@@ -39,10 +56,32 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
+// Add authentication middleware before authorization
+app.UseAuthentication();
+
+// Middleware: ensure users who logged in without RememberMe are signed out after application restart
+app.Use(async (context, next) =>
+{
+    var runProvider = context.RequestServices.GetService<IRunIdProvider>();
+    if (runProvider != null && context.User?.Identity?.IsAuthenticated == true)
+    {
+        var claim = context.User.FindFirst("RunId");
+        if (claim != null && claim.Value != runProvider.RunId)
+        {
+            // Sign out the user if their RunId doesn't match current run id
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            context.Response.Redirect("/Account/Login");
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+    pattern: "{controller=Account}/{action=Login}/{id?}");
 
 app.Run();

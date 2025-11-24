@@ -1,0 +1,58 @@
+@model webProject.Models.LoginViewModel
+@{
+    ViewData["Title"] = ViewData["Title"] ?? "Log In";
+}
+
+@section HeadContent {
+    <style>
+        /* Small overrides to integrate with existing site look */
+        .auth-panel { max-width: 540px; margin: 52px auto; padding: 22px; }
+        .auth-panel .site-header { margin-bottom: 20px; }
+        .auth-panel .subtitle { color: var(--muted); }
+        .field-row { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+        .auth-cta { display:flex; gap:8px; align-items:center; }
+    </style>
+}
+
+<div class="wrap auth-panel panel">
+    <div class="site-header">
+        <h1>Gauss Solver</h1>
+        <div class="subtitle">Log In or Register to continue working</div>
+    </div>
+
+    @if (TempData["Message"] != null)
+    {
+        <div class="result" role="status">@TempData["Message"]</div>
+    }
+
+    <form asp-action="Login" method="post">
+        <div class="field-row">
+            <label asp-for="Email"></label>
+            <input asp-for="Email" />
+            <span class="hint" asp-validation-for="Email"></span>
+        </div>
+
+        <div class="field-row">
+            <label asp-for="Password"></label>
+            <input asp-for="Password" />
+            <span class="hint" asp-validation-for="Password"></span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div>
+                <input type="checkbox" asp-for="RememberMe" id="RememberMe" /> <label for="RememberMe">Remember me</label>
+            </div>
+            <div class="auth-cta">
+                <a class="btn" href="@Url.Action("Register","Account")">Register</a>
+                <button class="btn primary" type="submit">Log In</button>
+            </div>
+        </div>
+
+        <input type="hidden" asp-for="ReturnUrl" />
+        @Html.AntiForgeryToken()
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

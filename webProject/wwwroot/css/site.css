@@ -398,6 +398,101 @@ input.rhs {
     box-shadow: 0 6px 24px rgba(0,0,0,0.35);
 }
 
+/* ====================
+   Authentication / auth panels
+   ==================== */
+.auth-panel .site-header {
+    margin-bottom: 18px; /* spacing between brand/title and the form */
+}
+.auth-panel .site-header h1 {
+    margin: 0 0 6px 0;
+    font-size: 20px;
+}
+.auth-panel .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.auth-panel .field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.auth-panel label {
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.auth-panel input[type="text"],
+.auth-panel input[type="email"],
+.auth-panel input[type="password"],
+.auth-panel input[type="number"] {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    background: transparent;
+    color: inherit;
+}
+
+.auth-actions, .auth-cta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.auth-actions { justify-content: space-between; }
+
+.auth-panel .btn {
+    padding: 8px 12px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Ensure auth links stay white (avoid browser visited purple) */
+.auth-panel a,
+.auth-panel a:visited,
+.auth-panel .auth-cta a,
+.auth-panel .auth-actions a {
+    color: #e6eef8;
+    text-decoration: none;
+}
+
+.auth-panel a:hover,
+.auth-panel .auth-cta a:hover,
+.auth-panel .auth-actions a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+
+/* Make topbar right-side auth links white and neutral (avoid purple visited color) */
+.topbar-right a.btn {
+    color: #e6eef8; /* white-ish */
+    text-decoration: none;
+}
+.topbar-right a.btn:visited { color: #e6eef8; }
+
+/* Slightly larger focus ring for accessibility on inputs */
+.auth-panel input:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(122,162,255,0.08);
+    border-color: rgba(122,162,255,0.6);
+}
+
+/* Responsive tweaks */
+@media (max-width: 520px) {
+    .auth-panel { padding: 16px; margin: 24px 12px; }
+    .auth-actions { flex-direction: column-reverse; align-items: stretch; }
+    .auth-actions a.btn { width: 100%; }
+}
+
 /* Theme: light overrides */
 body[data-theme="light"] {
     --bg: #f6f8fb;
@@ -478,4 +573,3 @@ body {
     /* increase reserved footer space on small screens because it stacks */
     :root { --footer-height: 96px; }
 }
-

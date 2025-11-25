@@ -12,9 +12,15 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 
+// Add Memory Cache
+builder.Services.AddMemoryCache();
+
 // Add this before var app = builder.Build();
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Register services
+builder.Services.AddScoped<IGaussianEliminationService, GaussianEliminationService>();
 
 // Register RunId provider (unique per application run)
 var runId = Guid.NewGuid().ToString();

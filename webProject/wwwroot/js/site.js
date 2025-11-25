@@ -1,68 +1,73 @@
-﻿// file: src/WebApp/wwwroot/js/app.js
-// Organized front-end logic for Gauss Solver demo
+﻿
+// GAUSS SOLVER - Frontend Logic
 (() => {
-    // --- Cached DOM selectors ---
-    const sizeInput = document.getElementById('sizeInput');
-    const matrixWrap = document.getElementById('matrixWrap');
-    const randBtn = document.getElementById('rand');
-    const clearBtn = document.getElementById('clear');
-    const solveBtn = document.getElementById('solve');
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
-    const resultEl = document.getElementById('result');
-    const historyEl = document.getElementById('history');
-    const clearHistoryBtn = document.getElementById('clearHistory');
-    const exportBtn = document.getElementById('export');
+    
+    // DOM ELEMENTS
+    const $ = id => document.getElementById(id);
+    const sizeInput = $('sizeInput');
+    const matrixWrap = $('matrixWrap');
+    const progressBar = $('progressBar');
+    const progressText = $('progressText');
+    const resultEl = $('result');
+    const historyEl = $('history');
 
-    // Application state
-    let n = Math.max(parseInt(sizeInput && sizeInput.value, 10) || 3, 1);
-    const themeToggleBtn = document.getElementById('themeToggle');
+    let size = Math.max(parseInt(sizeInput?.value, 10) || 3, 1);
+    let matrixId = null;
 
-    // --- Helpers: render matrix inputs ---
-    function buildMatrix(size) {
-        // Render matrix as two visually separated columns: coefficients (left) and RHS (right)
+    // UTILITY FUNCTIONS
+    function setProgress(percent, text) {
+        progressBar.style.width = percent + '%';
+        progressText.textContent = text || (percent === 0 ? 'idle' : percent + '%');
+    }
+
+    function showResult(message, isError = false) {
+        resultEl.hidden = false;
+        resultEl.textContent = message;
+        resultEl.style.color = isError ? '#ff6b6b' : '';
+    }
+
+    // MATRIX UI
+    function buildMatrix(n) {
         matrixWrap.innerHTML = '';
         const inner = document.createElement('div');
         inner.className = 'matrix-inner';
 
-        // Coefficients table (left)
+        // Coefficients table
         const coeffTable = document.createElement('table');
         coeffTable.className = 'matrix coeff-table';
-        for (let i = 0; i < size; i++) {
+        for (let i = 0; i < n; i++) {
             const tr = document.createElement('tr');
-            for (let j = 0; j < size; j++) {
+            for (let j = 0; j < n; j++) {
                 const td = document.createElement('td');
-                const input = document.createElement('input');
-                input.type = 'number';
-                input.step = 'any';
-                input.className = 'coeff';
-                input.dataset.row = i;
-                input.dataset.col = j;
-                // friendly default: identity-like
-                input.value = (i === j) ? '1' : '0';
-                td.appendChild(input);
+                const inp = document.createElement('input');
+                inp.type = 'number';
+                inp.step = 'any';
+                inp.className = 'coeff';
+                inp.dataset.row = i;
+                inp.dataset.col = j;
+                inp.value = i === j ? '1' : '0';
+                td.appendChild(inp);
                 tr.appendChild(td);
             }
             coeffTable.appendChild(tr);
         }
 
-        // RHS column (right)
+        // RHS column
         const rhsCol = document.createElement('div');
         rhsCol.className = 'rhs-column';
-        for (let i = 0; i < size; i++) {
+        for (let i = 0; i < n; i++) {
             const wrapper = document.createElement('div');
             wrapper.className = 'rhs-row';
-            const rhsIn = document.createElement('input');
-            rhsIn.type = 'number';
-            rhsIn.step = 'any';
-            rhsIn.className = 'rhs';
-            rhsIn.dataset.row = i;
-            rhsIn.value = '0';
-            wrapper.appendChild(rhsIn);
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.step = 'any';
+            inp.className = 'rhs';
+            inp.dataset.row = i;
+            inp.value = '0';
+            wrapper.appendChild(inp);
             rhsCol.appendChild(wrapper);
         }
 
-        // wrap coefficients in a column container so it can have the same framing as RHS
         const coeffCol = document.createElement('div');
         coeffCol.className = 'coeff-column';
         coeffCol.appendChild(coeffTable);
@@ -71,272 +76,216 @@
         matrixWrap.appendChild(inner);
     }
 
-    function renderSummary(size) {
-        matrixWrap.innerHTML = '';
-        const div = document.createElement('div');
-        div.className = 'matrix-summary';
-        div.innerHTML = `Матриця та вектор правих частин розміру <strong>${size}×${size}</strong> згенеровані. Поля не відображаються для великих розмірів.`;
-        matrixWrap.appendChild(div);
+    function showSummary(n, msg) {
+        matrixWrap.innerHTML = `<div class="matrix-summary">${msg || `Matrix ${n}×${n} - too large to display.`}</div>`;
     }
 
-    // Fill with random numbers (range symmetric around zero)
-    function randomFill(range = 10) {
-        if (n < 10) {
-            matrixWrap.querySelectorAll('input.coeff').forEach(i => i.value = (Math.random() * 2 * range - range).toFixed(2));
-            matrixWrap.querySelectorAll('input.rhs').forEach(i => i.value = (Math.random() * 2 * range - range).toFixed(2));
-        } else {
-            // For large sizes we don't render inputs — show a short notice instead
-            renderSummary(n);
-            progressText.textContent = `Random values generated for ${n}×${n} (not displayed)`;
-        }
-    }
-
-    function clearMatrix() {
-        if (n < 10) {
-            matrixWrap.querySelectorAll('input').forEach(i => i.value = '');
-        } else {
-            renderSummary(n);
-            progressText.textContent = `Matrix ${n}×${n} cleared (no visible inputs)`;
-        }
-    }
-
-    // Read matrix values from DOM into JS arrays
     function readMatrix() {
-        const rows = [];
-        for (let i = 0; i < n; i++) {
+        const rows = [], rhs = [];
+        for (let i = 0; i < size; i++) {
             const row = [];
-            for (let j = 0; j < n; j++) {
+            for (let j = 0; j < size; j++) {
                 const el = matrixWrap.querySelector(`input.coeff[data-row="${i}"][data-col="${j}"]`);
-                row.push(Number(el && el.value ? el.value : 0));
+                row.push(Number(el?.value || 0));
             }
             rows.push(row);
-        }
-        const rhs = [];
-        for (let i = 0; i < n; i++) {
-            const el = matrixWrap.querySelector(`input.rhs[data-row="${i}"]`);
-            rhs.push(Number(el && el.value ? el.value : 0));
+            const rhsEl = matrixWrap.querySelector(`input.rhs[data-row="${i}"]`);
+            rhs.push(Number(rhsEl?.value || 0));
         }
         return { rows, rhs };
     }
 
-    // Update progress UI
-    function setProgress(p) {
-        if (!progressBar) return;
-        progressBar.style.width = p + '%';
-        progressText.textContent = (p === 0) ? 'idle' : p + '%';
+    // HISTORY
+    async function loadHistory() {
+        try {
+            const res = await fetch('/api/matrix/history?limit=20');
+            const data = await res.json();
+            if (data.success && data.history) renderHistory(data.history);
+        } catch (err) {
+            historyEl.innerHTML = '<div class="history-item" style="opacity:.6">Failed to load</div>';
+        }
     }
 
-    // -------------------------------
-    // Numerical solver: Gaussian elimination with partial pivoting
-    // Returns a Promise to allow UI progress updates
-    // -------------------------------
-    function solveGaussAsync(Ainit, bin, onProgress) {
-        return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                try {
-                    const A = Ainit.map(r => r.slice());
-                    const b = bin.slice();
-                    const N = A.length;
-
-                    for (let k = 0; k < N; k++) {
-                        // partial pivot
-                        let maxRow = k;
-                        for (let i = k + 1; i < N; i++) {
-                            if (Math.abs(A[i][k]) > Math.abs(A[maxRow][k])) maxRow = i;
-                        }
-                        if (Math.abs(A[maxRow][k]) < 1e-12) throw new Error('Матриця вироджена або близька до виродження');
-                        if (maxRow !== k) {
-                            [A[k], A[maxRow]] = [A[maxRow], A[k]];
-                            [b[k], b[maxRow]] = [b[maxRow], b[k]];
-                        }
-
-                        for (let i = k + 1; i < N; i++) {
-                            const factor = A[i][k] / A[k][k];
-                            for (let j = k; j < N; j++) A[i][j] -= factor * A[k][j];
-                            b[i] -= factor * b[k];
-                        }
-
-                        if (typeof onProgress === 'function') onProgress(Math.round((k + 1) / N * 100));
-                    }
-
-                    // back substitution
-                    const x = new Array(N).fill(0);
-                    for (let i = N - 1; i >= 0; i--) {
-                        let s = b[i];
-                        for (let j = i + 1; j < N; j++) s -= A[i][j] * x[j];
-                        x[i] = s / A[i][i];
-                    }
-                    resolve(x);
-                } catch (err) {
-                    reject(err);
-                }
-            }, 150); // small defer so UI updates between steps
-        });
-    }
-
-    // -------------------------------
-    // History (localStorage)
-    // -------------------------------
-    const HISTORY_KEY = 'gauss_history_v1';
-
-    function addHistory(entry) {
-        const raw = localStorage.getItem(HISTORY_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        arr.unshift(entry);
-        arr.splice(20); // keep up to 20
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
-        renderHistory();
-    }
-
-    function renderHistory() {
+    function renderHistory(list) {
         historyEl.innerHTML = '';
-        const raw = localStorage.getItem(HISTORY_KEY);
-        const list = raw ? JSON.parse(raw) : [];
         if (!list.length) {
-            const empty = document.createElement('div');
-            empty.className = 'history-item';
-            empty.style.opacity = '.6';
-            empty.textContent = 'Empty';
-            historyEl.appendChild(empty);
+            historyEl.innerHTML = '<div class="history-item" style="opacity:.6">Empty</div>';
             return;
         }
-
         list.forEach(h => {
             const el = document.createElement('div');
             el.className = 'history-item';
-            const left = document.createElement('div');
-            left.innerHTML = `<div style="font-weight:600">${h.time}</div><small class="hint">${h.size}×${h.size}</small>`;
-            const right = document.createElement('div');
-            right.textContent = 'x=' + JSON.stringify(h.result.map(v => Number(v.toFixed(4))));
-            el.appendChild(left);
-            el.appendChild(right);
+            const solution = h.success ? JSON.parse(h.solution) : null;
+            el.innerHTML = `
+                <div>
+                    <div style="font-weight:600">${h.time}</div>
+                    <small class="hint">${h.size}×${h.size}</small>
+                </div>
+                <div style="color:${h.success ? '' : '#ff6b6b'}">
+                    ${h.success 
+                        ? (solution.length <= 10 
+                            ? `x=${JSON.stringify(solution.map(v => v.toFixed(4)))}` 
+                            : `Solved (${solution.length} values)`)
+                        : `Error: ${h.errorMessage || 'Unknown'}`}
+                </div>
+            `;
             historyEl.appendChild(el);
         });
     }
 
-    // Export history as JSON file
-    function exportHistory() {
-        const raw = localStorage.getItem(HISTORY_KEY) || '[]';
-        const blob = new Blob([raw], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'gauss_history.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    }
-
-    // -------------------------------
-    // Event wiring
-    // -------------------------------
-    // size input: allow arbitrary positive integer; if <10 render matrix inputs, else show summary
+    // EVENT HANDLERS
     if (sizeInput) {
         sizeInput.addEventListener('change', () => {
-            let v = Math.max(parseInt(sizeInput.value, 10) || 1, 1);
-            // store as string cleanup
-            sizeInput.value = v;
-            n = v;
-            if (n < 10) {
-                buildMatrix(n);
-            } else {
-                renderSummary(n);
-            }
+            size = Math.max(parseInt(sizeInput.value, 10) || 1, 1);
+            sizeInput.value = size;
+            matrixId = null;
+            size < 10 ? buildMatrix(size) : showSummary(size);
             setProgress(0);
             resultEl.hidden = true;
         });
     }
 
-    randBtn.addEventListener('click', () => { randomFill(10); resultEl.hidden = true; setProgress(0); });
-    clearBtn.addEventListener('click', () => { clearMatrix(); resultEl.hidden = true; setProgress(0); });
-
-    solveBtn.addEventListener('click', async () => {
+    // Random generation
+    $('rand').addEventListener('click', async () => {
         resultEl.hidden = true;
-        setProgress(0);
-        if (n >= 10) {
-            // Too large to render/solve in-browser for now — inform user
-            alert(`Matrix ${n}×${n} is too large to render/solve in the browser. Use a smaller size (< 10) or server-side solver.`);
-            return;
-        }
-
-        const { rows, rhs } = readMatrix();
-        // validation
-        if (rows.some(r => r.some(c => !isFinite(c))) || rhs.some(v => !isFinite(v))) {
-            alert('Please enter valid numbers');
-            return;
-        }
-
-        progressText.textContent = 'starting...';
+        setProgress(0, 'Generating...');
         try {
-            const x = await solveGaussAsync(rows, rhs, p => setProgress(p));
-            setProgress(100);
-            resultEl.hidden = false;
-            resultEl.textContent = 'Solution: [' + x.map(v => Number(v.toFixed(6))).join(', ') + ']';
-            addHistory({ time: new Date().toLocaleString(), size: n, result: x });
+            const res = await fetch('/api/matrix/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ size, minValue: -10, maxValue: 10 })
+            });
+            const data = await res.json();
+            
+            if (!data.success) {
+                showResult(data.error || 'Failed', true);
+                setProgress(0);
+                return;
+            }
+
+            if (size < 10) {
+                for (let i = 0; i < size; i++) {
+                    for (let j = 0; j < size; j++) {
+                        const el = matrixWrap.querySelector(`input.coeff[data-row="${i}"][data-col="${j}"]`);
+                        if (el) el.value = data.coefficients[i][j].toFixed(2);
+                    }
+                    const rhsEl = matrixWrap.querySelector(`input.rhs[data-row="${i}"]`);
+                    if (rhsEl) rhsEl.value = data.rightHandSide[i].toFixed(2);
+                }
+                setProgress(100, 'Ready');
+            } else {
+                matrixId = data.matrixId;
+                showSummary(size, `✓ ${data.message}<br><small>Click "Solve" to compute.</small>`);
+                setProgress(100, 'Ready');
+            }
         } catch (err) {
+            showResult('Server error', true);
             setProgress(0);
-            resultEl.hidden = false;
-            resultEl.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
         }
     });
 
-    clearHistoryBtn.addEventListener('click', () => { localStorage.removeItem(HISTORY_KEY); renderHistory(); });
-    exportBtn.addEventListener('click', exportHistory);
+    // Clear
+    $('clear').addEventListener('click', () => {
+        if (size < 10) matrixWrap.querySelectorAll('input').forEach(i => i.value = '');
+        else { matrixId = null; showSummary(size); }
+        resultEl.hidden = true;
+        setProgress(0);
+    });
 
-    // Theme toggle: persist choice in localStorage
+    // Solve
+    $('solve').addEventListener('click', async () => {
+        resultEl.hidden = true;
+        setProgress(0);
+        try {
+            if (size < 10) {
+                // Small matrix
+                const { rows, rhs } = readMatrix();
+                setProgress(50, 'Solving...');
+                const res = await fetch('/api/matrix/solve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ coefficients: rows, rightHandSide: rhs })
+                });
+                const data = await res.json();
+                setProgress(100);
+                showResult(data.success 
+                    ? `Solution: [${data.solution.map(v => v.toFixed(6)).join(', ')}]`
+                    : `Error: ${data.error}`, !data.success);
+            } else {
+                // Large matrix
+                if (!matrixId) { alert('Generate matrix first!'); return; }
+                setProgress(30, 'Computing...');
+                const res = await fetch('/api/matrix/solve-stored', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ matrixId })
+                });
+                const data = await res.json();
+                setProgress(100);
+                if (data.success) {
+                    showResult(`✓ ${data.solutionSummary}`);
+                    matrixId = null;
+                    showSummary(size, `Solved! Check history.`);
+                } else {
+                    showResult(`Error: ${data.error}`, true);
+                }
+            }
+            loadHistory();
+        } catch (err) {
+            showResult('Server error', true);
+            setProgress(0);
+        }
+    });
+
+    // History controls
+    $('clearHistory').addEventListener('click', async () => {
+        try {
+            await fetch('/api/matrix/history', { method: 'DELETE' });
+            loadHistory();
+        } catch (err) { alert('Failed to clear'); }
+    });
+
+    $('export').addEventListener('click', () => {
+        window.location.href = '/api/matrix/history/export';
+    });
+
+    // THEME
     const THEME_KEY = 'gauss_theme';
     function applyTheme(theme) {
-        try {
-            if (theme === 'light') {
-                document.body.setAttribute('data-theme', 'light');
-                if (themeToggleBtn) themeToggleBtn.textContent = 'Light';
-            } else {
-                document.body.removeAttribute('data-theme');
-                if (themeToggleBtn) themeToggleBtn.textContent = 'Dark';
-            }
-        } catch (e) { /* ignore */ }
+        if (theme === 'light') {
+            document.body.setAttribute('data-theme', 'light');
+            $('themeToggle').textContent = 'Light';
+        } else {
+            document.body.removeAttribute('data-theme');
+            $('themeToggle').textContent = 'Dark';
+        }
     }
-
-    // init theme from storage
     const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
-    applyTheme(savedTheme === 'light' ? 'light' : 'dark');
+    applyTheme(savedTheme);
+    $('themeToggle').addEventListener('click', () => {
+        const cur = document.body.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        const next = cur === 'light' ? 'dark' : 'light';
+        applyTheme(next);
+        localStorage.setItem(THEME_KEY, next);
+    });
 
-    if (themeToggleBtn) {
-        themeToggleBtn.addEventListener('click', () => {
-            const cur = document.body.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-            const next = cur === 'light' ? 'dark' : 'light';
-            applyTheme(next);
-            localStorage.setItem(THEME_KEY, next);
-        });
-    }
+    // NAVIGATION
+    const homeLink = $('homeLink');
+    if (homeLink) homeLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    
+    const historyLink = document.querySelector('a.nav-link[href="#history-section"]');
+    if (historyLink) historyLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = $('history-section');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 
-    // --- Initialize ---
-    if (n < 10) buildMatrix(n);
-    else renderSummary(n);
-    renderHistory();
+    // INITIALIZATION
+    size < 10 ? buildMatrix(size) : showSummary(size);
+    loadHistory();
     setProgress(0);
-
-    // Topbar "Home" link: smooth scroll to top (keeps markup clean, no inline JS)
-    const homeLink = document.getElementById('homeLink');
-    if (homeLink) {
-        homeLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
-    }
-
-    // Topbar "History" link: smooth scroll down to the history section
-    const historyNavLink = document.querySelector('a.nav-link[href="#history-section"]');
-    if (historyNavLink) {
-        historyNavLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            const target = document.getElementById('history-section');
-            if (target) {
-                // ensure the wrap's header is visible — scroll the section into view
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                // optionally focus for accessibility
-                try { target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
-            } else {
-                // fallback: scroll to bottom
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            }
-        });
-    }
-
 })();
+

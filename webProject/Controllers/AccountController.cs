@@ -5,16 +5,20 @@ using System.Security.Claims;
 using webProject.Models;
 using Microsoft.AspNetCore.Http;
 using webProject.Services;
+using webProject.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace webProject.Controllers;
 
 public class AccountController : Controller
 {
     private readonly IRunIdProvider _runIdProvider;
+    private readonly ApplicationDbContext _context;
 
-    public AccountController(IRunIdProvider runIdProvider)
+    public AccountController(IRunIdProvider runIdProvider, ApplicationDbContext context)
     {
         _runIdProvider = runIdProvider;
+        _context = context;
     }
 
     // GET: /Account/Login
@@ -37,14 +41,17 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Since DB/auth isn't implemented yet, just simulate success for non-empty credentials.
-        if (!string.IsNullOrWhiteSpace(model.Email) && !string.IsNullOrWhiteSpace(model.Password))
+        // Find user in database
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
+        
+        if (user != null && VerifyPassword(model.Password!, user.PasswordHash))
         {
             // Create claims and sign in user using cookie authentication
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.NameIdentifier, model.Email!),
-                new Claim(ClaimTypes.Name, model.Email!)
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Email),
+                new Claim(ClaimTypes.Email, user.Email)
             };
 
             // If user did not select RememberMe, add RunId claim to force logout after app restart
@@ -79,7 +86,7 @@ public class AccountController : Controller
             return RedirectToAction("Index", "Home");
         }
 
-        ModelState.AddModelError(string.Empty, "Invalid email or password (authentication not implemented). Enter any non-empty values.");
+        ModelState.AddModelError(string.Empty, "Invalid email or password.");
         ViewData["Title"] = "Log In";
         return View(model);
     }
@@ -104,44 +111,59 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Placeholder: in the future save user to DB.
-        // For now sign in the user automatically after registration.
-        if (!string.IsNullOrWhiteSpace(model.Email))
+        // Check if user already exists
+        var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
+        if (existingUser != null)
         {
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.NameIdentifier, model.Email!),
-                new Claim(ClaimTypes.Name, model.Email!)
-            };
-
-            // On registration assume non-persistent session (user didn't explicitly choose RememberMe)
-            claims.Add(new Claim("RunId", _runIdProvider.RunId));
-
-            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-            var principal = new ClaimsPrincipal(identity);
-
-            var authProperties = new AuthenticationProperties
-            {
-                IsPersistent = false
-            };
-
-            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
-
-            // Set theme cookie to dark after registration as well
-            Response.Cookies.Append("theme", "dark", new CookieOptions
-            {
-                Expires = DateTimeOffset.UtcNow.AddYears(1),
-                HttpOnly = false,
-                Secure = false,
-                SameSite = SameSiteMode.Lax
-            });
-
-            return RedirectToAction("Index", "Home");
+            ModelState.AddModelError(string.Empty, "User with this email already exists.");
+            ViewData["Title"] = "Register";
+            return View(model);
         }
 
-        TempData["Message"] = "Registration succeeded (DB save not implemented). Please log in.";
-        return RedirectToAction("Login");
+        // Create new user
+        var user = new User
+        {
+            Email = model.Email!,
+            PasswordHash = HashPassword(model.Password!),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        // Sign in the user automatically after registration
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Name, user.Email),
+            new Claim(ClaimTypes.Email, user.Email)
+        };
+
+        // On registration assume non-persistent session (user didn't explicitly choose RememberMe)
+        claims.Add(new Claim("RunId", _runIdProvider.RunId));
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        var authProperties = new AuthenticationProperties
+        {
+            IsPersistent = false
+        };
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
+
+        // Set theme cookie to dark after registration as well
+        Response.Cookies.Append("theme", "dark", new CookieOptions
+        {
+            Expires = DateTimeOffset.UtcNow.AddYears(1),
+            HttpOnly = false,
+            Secure = false,
+            SameSite = SameSiteMode.Lax
+        });
+
+        return RedirectToAction("Index", "Home");
     }
+
 
     // POST: /Account/Logout
     [HttpPost]
@@ -153,5 +175,16 @@ public class AccountController : Controller
         Response.Cookies.Delete("theme");
         TempData["Message"] = "You have been logged out.";
         return RedirectToAction("Login");
+    }
+
+    // Simple password hashing using BCrypt-style approach
+    private string HashPassword(string password)
+    {
+        return BCrypt.Net.BCrypt.HashPassword(password);
+    }
+
+    private bool VerifyPassword(string password, string hash)
+    {
+        return BCrypt.Net.BCrypt.Verify(password, hash);
     }
 }

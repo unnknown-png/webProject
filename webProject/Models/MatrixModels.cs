@@ -9,12 +9,16 @@ public class MatrixRequest
     
     [Required]
     public double[] RightHandSide { get; set; } = Array.Empty<double>();
+    
+    public string? TaskId { get; set; }
 }
 
 public class StoredMatrixRequest
 {
     [Required]
     public string MatrixId { get; set; } = string.Empty;
+    
+    public string? TaskId { get; set; }
 }
 
 public class MatrixSolution

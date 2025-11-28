@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using System.Text.Json;
 using webProject.Data;
+using webProject.Hubs;
 using webProject.Models;
 using webProject.Services;
 
@@ -17,17 +19,23 @@ public class MatrixController : Controller
     private readonly ApplicationDbContext _context;
     private readonly ILogger<MatrixController> _logger;
     private readonly IMemoryCache _cache;
+    private readonly IHubContext<ProgressHub> _hubContext;
+    private readonly ITaskManager _taskManager;
 
     public MatrixController(
         IGaussianEliminationService gaussService,
         ApplicationDbContext context,
         ILogger<MatrixController> logger,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IHubContext<ProgressHub> hubContext,
+        ITaskManager taskManager)
     {
         _gaussService = gaussService;
         _context = context;
         _logger = logger;
         _cache = cache;
+        _hubContext = hubContext;
+        _taskManager = taskManager;
     }
 
     // API: Solve matrix system (for small matrices < 10)
@@ -54,8 +62,39 @@ public class MatrixController : Controller
                 });
             }
 
-            var solution = await _gaussService.SolveAsync(request.Coefficients, request.RightHandSide);
+            // Create task ID for tracking (use client-provided taskId or generate new one)
+            var taskId = !string.IsNullOrEmpty(request.TaskId) 
+                ? _taskManager.CreateTask(request.TaskId)
+                : _taskManager.CreateTask();
             
+            var cts = _taskManager.GetCancellationToken(taskId);
+            
+            _logger.LogInformation($"[Progress] Using task {taskId} for matrix solving (client-provided: {!string.IsNullOrEmpty(request.TaskId)})");
+
+            // Create progress reporter
+            var progress = new Progress<ProgressInfo>(async info =>
+            {
+                try
+                {
+                    _logger.LogInformation($"[Progress] Task {taskId}: {info.Percent}% - {info.Stage} - {info.Message}");
+                    await _hubContext.Clients.All.SendAsync("ReceiveProgress", taskId, info.Percent, info.Stage, info.Message);
+                    _logger.LogInformation($"[Progress] Message sent to clients");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sending progress update");
+                }
+            });
+
+            var solution = await _gaussService.SolveAsync(
+                request.Coefficients, 
+                request.RightHandSide, 
+                progress,
+                cts?.Token ?? default);
+            
+            // Cleanup task
+            _taskManager.RemoveTask(taskId);
+
             // Save to history if user is authenticated
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (int.TryParse(userIdClaim, out int userId))
@@ -81,7 +120,8 @@ public class MatrixController : Controller
                 solution = solution.Solution,
                 error = solution.ErrorMessage,
                 size = solution.Size,
-                solvedAt = solution.SolvedAt
+                solvedAt = solution.SolvedAt,
+                taskId
             });
         }
         catch (Exception ex)
@@ -155,15 +195,46 @@ public class MatrixController : Controller
         {
             var cacheKey = $"matrix_{request.MatrixId}";
             
-            if (!_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var matrix))
+            if (!_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var matrix) || matrix == null)
             {
                 return NotFound(new { success = false, error = "Matrix not found or expired. Please generate a new one." });
             }
 
             _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size}");
             
-            var solution = await _gaussService.SolveAsync(matrix.Coefficients, matrix.RightHandSide);
+            // Create task ID for tracking (use client-provided taskId or generate new one)
+            var taskId = !string.IsNullOrEmpty(request.TaskId) 
+                ? _taskManager.CreateTask(request.TaskId)
+                : _taskManager.CreateTask();
             
+            var cts = _taskManager.GetCancellationToken(taskId);
+            
+            _logger.LogInformation($"[Progress] Using task {taskId} for stored matrix solving (client-provided: {!string.IsNullOrEmpty(request.TaskId)})");
+
+            // Create progress reporter
+            var progress = new Progress<ProgressInfo>(async info =>
+            {
+                try
+                {
+                    _logger.LogInformation($"[Progress] Task {taskId}: {info.Percent}% - {info.Stage} - {info.Message}");
+                    await _hubContext.Clients.All.SendAsync("ReceiveProgress", taskId, info.Percent, info.Stage, info.Message);
+                    _logger.LogInformation($"[Progress] Message sent to clients for stored matrix");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sending progress update for stored matrix");
+                }
+            });
+
+            var solution = await _gaussService.SolveAsync(
+                matrix.Coefficients, 
+                matrix.RightHandSide,
+                progress,
+                cts?.Token ?? default);
+            
+            // Cleanup task
+            _taskManager.RemoveTask(taskId);
+
             // Remove from cache after solving
             _cache.Remove(cacheKey);
             
@@ -196,12 +267,31 @@ public class MatrixController : Controller
                     : null,
                 solutionLength = solution.Solution?.Length ?? 0,
                 error = solution.ErrorMessage,
-                solvedAt = solution.SolvedAt
+                solvedAt = solution.SolvedAt,
+                taskId
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error solving stored matrix");
+            return StatusCode(500, new { success = false, error = "Internal server error" });
+        }
+    }
+
+    // API: Cancel task
+    [HttpPost]
+    [Route("api/matrix/cancel/{taskId}")]
+    public IActionResult CancelTask(string taskId)
+    {
+        try
+        {
+            _taskManager.CancelTask(taskId);
+            _logger.LogInformation($"Task {taskId} cancellation requested");
+            return Ok(new { success = true, message = "Task cancellation requested" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling task");
             return StatusCode(500, new { success = false, error = "Internal server error" });
         }
     }

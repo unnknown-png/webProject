@@ -21,6 +21,10 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Register services
 builder.Services.AddScoped<IGaussianEliminationService, GaussianEliminationService>();
+builder.Services.AddSingleton<ITaskManager, TaskManager>();
+
+// Add SignalR
+builder.Services.AddSignalR();
 
 // Register RunId provider (unique per application run)
 var runId = Guid.NewGuid().ToString();
@@ -34,6 +38,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.AccessDeniedPath = "/Account/Login";
         options.Cookie.Name = "GaussAuth";
         options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Force HTTPS only
+        options.Cookie.SameSite = SameSiteMode.Strict; // CSRF protection
     });
 
 var app = builder.Build();
@@ -95,5 +101,7 @@ app.UseAuthorization();
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Account}/{action=Login}/{id?}");
+
+app.MapHub<webProject.Hubs.ProgressHub>("/progressHub");
 
 app.Run();

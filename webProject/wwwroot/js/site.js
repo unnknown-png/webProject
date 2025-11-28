@@ -1,5 +1,4 @@
-﻿
-// GAUSS SOLVER - Frontend Logic
+﻿// GAUSS SOLVER - Frontend Logic with SignalR Progress Tracking
 (() => {
     
     // DOM ELEMENTS
@@ -8,16 +7,90 @@
     const matrixWrap = $('matrixWrap');
     const progressBar = $('progressBar');
     const progressText = $('progressText');
+    const progressPercent = $('progressPercent');
+    const progressStage = $('progressStage');
+    const cancelBtn = $('cancelBtn');
     const resultEl = $('result');
     const historyEl = $('history');
 
     let size = Math.max(parseInt(sizeInput?.value, 10) || 3, 1);
     let matrixId = null;
+    let currentTaskId = null;
+    let connection = null;
+
+    // SIGNALR CONNECTION
+    function initSignalR() {
+        if (typeof signalR === 'undefined') {
+            console.warn('SignalR not loaded yet, retrying...');
+            setTimeout(initSignalR, 100);
+            return;
+        }
+
+        connection = new signalR.HubConnectionBuilder()
+            .withUrl("/progressHub")
+            .configureLogging(signalR.LogLevel.Information)
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveProgress", (taskId, percent, stage, message) => {
+            console.log(`[SignalR] Received progress - TaskId: ${taskId}, Percent: ${percent}, Stage: ${stage}, Message: ${message}`);
+            console.log(`[SignalR] Current TaskId: ${currentTaskId}`);
+            
+            if (taskId === currentTaskId) {
+                console.log(`[SignalR] Updating progress to ${percent}%`);
+                setProgress(percent, message, stage);
+            } else {
+                console.log(`[SignalR] Ignoring progress - TaskId mismatch`);
+            }
+        });
+
+        connection.start()
+            .then(() => {
+                console.log("✅ SignalR connected successfully");
+                console.log("SignalR Connection ID:", connection.connectionId);
+            })
+            .catch(err => {
+                console.error("❌ SignalR connection error:", err);
+            });
+    }
+
+    // Initialize SignalR when script loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSignalR);
+    } else {
+        initSignalR();
+    }
 
     // UTILITY FUNCTIONS
-    function setProgress(percent, text) {
+    function setProgress(percent, text, stage = null) {
+        console.log(`[UI] Setting progress: ${percent}%, Stage: ${stage}, Text: ${text}`);
+        
         progressBar.style.width = percent + '%';
-        progressText.textContent = text || (percent === 0 ? 'idle' : percent + '%');
+        if (progressPercent) progressPercent.textContent = percent + '%';
+        progressText.textContent = text || (percent === 0 ? 'Idle' : percent + '%');
+        
+        if (stage && progressStage) {
+            const stageLabels = {
+                'Initializing': '🔧 Initializing...',
+                'ForwardElimination': '⚡ Forward Elimination',
+                'BackSubstitution': '🔄 Back Substitution',
+                'Finalizing': '✨ Finalizing...',
+                'Completed': '✅ Completed!',
+                'Cancelled': '❌ Cancelled',
+                'Failed': '❌ Failed'
+            };
+            progressStage.textContent = stageLabels[stage] || stage;
+            console.log(`[UI] Stage label set to: ${stageLabels[stage] || stage}`);
+        }
+
+        // Show/hide cancel button
+        if (cancelBtn) {
+            if (percent > 0 && percent < 100) {
+                cancelBtn.style.display = 'inline-block';
+            } else {
+                cancelBtn.style.display = 'none';
+            }
+        }
     }
 
     function showResult(message, isError = false) {
@@ -145,6 +218,26 @@
         });
     }
 
+    // Cancel button
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', async () => {
+            if (!currentTaskId) return;
+            
+            try {
+                const res = await fetch(`/api/matrix/cancel/${currentTaskId}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    setProgress(0, 'Cancelling...', 'Cancelled');
+                    cancelBtn.disabled = true;
+                }
+            } catch (err) {
+                console.error('Cancel error:', err);
+            }
+        });
+    }
+
     // Random generation
     $('rand').addEventListener('click', async () => {
         resultEl.hidden = true;
@@ -153,7 +246,7 @@
             const res = await fetch('/api/matrix/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ size, minValue: -10, maxValue: 10 })
+                body: JSON.stringify({ size, minValue: -200, maxValue: 200 })
             });
             const data = await res.json();
             
@@ -188,40 +281,85 @@
     $('clear').addEventListener('click', () => {
         if (size < 10) matrixWrap.querySelectorAll('input').forEach(i => i.value = '');
         else { matrixId = null; showSummary(size); }
+        
+        // Clear results and progress
         resultEl.hidden = true;
-        setProgress(0);
+        setProgress(0, 'Idle');
+        
+        // Clear progress stage
+        if (progressStage) progressStage.textContent = '';
     });
 
     // Solve
     $('solve').addEventListener('click', async () => {
+        console.log('[Solve] Button clicked');
         resultEl.hidden = true;
-        setProgress(0);
+        
+        // Generate taskId on client side BEFORE sending request
+        currentTaskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+        console.log('[Solve] Generated taskId:', currentTaskId);
+        
+        setProgress(0, 'Starting...', 'Initializing');
+        if (cancelBtn) cancelBtn.disabled = false;
+        
         try {
             if (size < 10) {
                 // Small matrix
+                console.log('[Solve] Solving small matrix', size + 'x' + size);
                 const { rows, rhs } = readMatrix();
-                setProgress(50, 'Solving...');
+                
+                console.log('[Solve] Sending request to /api/matrix/solve with taskId:', currentTaskId);
                 const res = await fetch('/api/matrix/solve', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ coefficients: rows, rightHandSide: rhs })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Task-Id': currentTaskId
+                    },
+                    body: JSON.stringify({ 
+                        coefficients: rows, 
+                        rightHandSide: rhs,
+                        taskId: currentTaskId
+                    })
                 });
+                
                 const data = await res.json();
-                setProgress(100);
+                console.log('[Solve] Response received:', data);
+                
+                // Progress is handled by SignalR
+                // Wait a bit for final progress update
+                console.log('[Solve] Waiting for progress updates...');
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                console.log('[Solve] Showing result');
                 showResult(data.success 
                     ? `Solution: [${data.solution.map(v => v.toFixed(6)).join(', ')}]`
                     : `Error: ${data.error}`, !data.success);
+                
+                currentTaskId = null;
+                console.log('[Solve] Task completed');
             } else {
                 // Large matrix
+                console.log('[Solve] Solving large matrix', size + 'x' + size);
                 if (!matrixId) { alert('Generate matrix first!'); return; }
-                setProgress(30, 'Computing...');
+                
+                console.log('[Solve] Sending request to /api/matrix/solve-stored with taskId:', currentTaskId);
                 const res = await fetch('/api/matrix/solve-stored', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ matrixId })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Task-Id': currentTaskId
+                    },
+                    body: JSON.stringify({ 
+                        matrixId,
+                        taskId: currentTaskId
+                    })
                 });
                 const data = await res.json();
-                setProgress(100);
+                
+                // Progress is handled by SignalR
+                // Wait a bit for final progress update
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
                 if (data.success) {
                     showResult(`✓ ${data.solutionSummary}`);
                     matrixId = null;
@@ -229,11 +367,14 @@
                 } else {
                     showResult(`Error: ${data.error}`, true);
                 }
+                
+                currentTaskId = null;
             }
             loadHistory();
         } catch (err) {
             showResult('Server error', true);
             setProgress(0);
+            currentTaskId = null;
         }
     });
 

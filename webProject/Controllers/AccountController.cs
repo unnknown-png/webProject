@@ -46,6 +46,10 @@ public class AccountController : Controller
         
         if (user != null && VerifyPassword(model.Password!, user.PasswordHash))
         {
+            // Update LastLogin timestamp
+            user.LastLogin = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            
             // Create claims and sign in user using cookie authentication
             var claims = new List<Claim>
             {

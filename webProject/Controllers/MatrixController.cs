@@ -68,17 +68,13 @@ public class MatrixController : Controller
                 : _taskManager.CreateTask();
             
             var cts = _taskManager.GetCancellationToken(taskId);
-            
-            _logger.LogInformation($"[Progress] Using task {taskId} for matrix solving (client-provided: {!string.IsNullOrEmpty(request.TaskId)})");
 
             // Create progress reporter
             var progress = new Progress<ProgressInfo>(async info =>
             {
                 try
                 {
-                    _logger.LogInformation($"[Progress] Task {taskId}: {info.Percent}% - {info.Stage} - {info.Message}");
                     await _hubContext.Clients.All.SendAsync("ReceiveProgress", taskId, info.Percent, info.Stage, info.Message);
-                    _logger.LogInformation($"[Progress] Message sent to clients");
                 }
                 catch (Exception ex)
                 {
@@ -208,17 +204,13 @@ public class MatrixController : Controller
                 : _taskManager.CreateTask();
             
             var cts = _taskManager.GetCancellationToken(taskId);
-            
-            _logger.LogInformation($"[Progress] Using task {taskId} for stored matrix solving (client-provided: {!string.IsNullOrEmpty(request.TaskId)})");
 
             // Create progress reporter
             var progress = new Progress<ProgressInfo>(async info =>
             {
                 try
                 {
-                    _logger.LogInformation($"[Progress] Task {taskId}: {info.Percent}% - {info.Stage} - {info.Message}");
                     await _hubContext.Clients.All.SendAsync("ReceiveProgress", taskId, info.Percent, info.Stage, info.Message);
-                    _logger.LogInformation($"[Progress] Message sent to clients for stored matrix");
                 }
                 catch (Exception ex)
                 {

@@ -40,6 +40,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Force HTTPS only
         options.Cookie.SameSite = SameSiteMode.Strict; // CSRF protection
+        
+        // Remember Me settings
+        options.ExpireTimeSpan = TimeSpan.FromDays(30); // Cookie lives 30 days
+        options.SlidingExpiration = true; // Renew cookie on each request
+        options.Cookie.MaxAge = TimeSpan.FromDays(30); // Browser keeps cookie 30 days
+        options.Cookie.IsEssential = true; // Essential cookie for authentication
     });
 
 var app = builder.Build();
@@ -84,6 +90,9 @@ app.Use(async (context, next) =>
     if (runProvider != null && context.User?.Identity?.IsAuthenticated == true)
     {
         var claim = context.User.FindFirst("RunId");
+        
+        // If user has RunId claim (meaning RememberMe was false), check if it matches
+        // If no RunId claim exists, user selected RememberMe and should stay logged in
         if (claim != null && claim.Value != runProvider.RunId)
         {
             // Sign out the user if their RunId doesn't match current run id
@@ -91,6 +100,7 @@ app.Use(async (context, next) =>
             context.Response.Redirect("/Account/Login");
             return;
         }
+        // If claim is null, user has RememberMe = true, let them through
     }
 
     await next();
@@ -100,7 +110,7 @@ app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Account}/{action=Login}/{id?}");
+    pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.MapHub<webProject.Hubs.ProgressHub>("/progressHub");
 

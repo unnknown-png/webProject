@@ -69,8 +69,11 @@ public class AccountController : Controller
 
             var authProperties = new AuthenticationProperties
             {
-                IsPersistent = model.RememberMe,
-                ExpiresUtc = model.RememberMe ? DateTimeOffset.UtcNow.AddDays(30) : (DateTimeOffset?)null
+                IsPersistent = model.RememberMe, // true = cookie survives browser close
+                AllowRefresh = true, // Allow cookie to refresh
+                ExpiresUtc = model.RememberMe 
+                    ? DateTimeOffset.UtcNow.AddDays(30) 
+                    : DateTimeOffset.UtcNow.AddMinutes(30) // Session expires in 30 min if not RememberMe
             };
 
             await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
@@ -151,7 +154,9 @@ public class AccountController : Controller
 
         var authProperties = new AuthenticationProperties
         {
-            IsPersistent = false
+            IsPersistent = false, // Session cookie for registration
+            AllowRefresh = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(30) // Short session for new users
         };
 
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);

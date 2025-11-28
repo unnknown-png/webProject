@@ -406,6 +406,17 @@ input.rhs {
     z-index: 1;
 }
 
+/* Light theme: darker text for progress percent */
+body[data-theme="light"] .progress-percent {
+    color: #0b1220;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+}
+
+/* Light theme: darker background for progress bar */
+body[data-theme="light"] .progress {
+    background: rgba(10,20,40,0.08);
+}
+
 .result {
     margin-top: 12px;
     padding: 12px;

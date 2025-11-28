@@ -28,30 +28,17 @@
 
         connection = new signalR.HubConnectionBuilder()
             .withUrl("/progressHub")
-            .configureLogging(signalR.LogLevel.Information)
             .withAutomaticReconnect()
             .build();
 
         connection.on("ReceiveProgress", (taskId, percent, stage, message) => {
-            console.log(`[SignalR] Received progress - TaskId: ${taskId}, Percent: ${percent}, Stage: ${stage}, Message: ${message}`);
-            console.log(`[SignalR] Current TaskId: ${currentTaskId}`);
-            
             if (taskId === currentTaskId) {
-                console.log(`[SignalR] Updating progress to ${percent}%`);
                 setProgress(percent, message, stage);
-            } else {
-                console.log(`[SignalR] Ignoring progress - TaskId mismatch`);
             }
         });
 
         connection.start()
-            .then(() => {
-                console.log("✅ SignalR connected successfully");
-                console.log("SignalR Connection ID:", connection.connectionId);
-            })
-            .catch(err => {
-                console.error("❌ SignalR connection error:", err);
-            });
+            .catch(err => console.error("SignalR connection error:", err));
     }
 
     // Initialize SignalR when script loads
@@ -63,24 +50,21 @@
 
     // UTILITY FUNCTIONS
     function setProgress(percent, text, stage = null) {
-        console.log(`[UI] Setting progress: ${percent}%, Stage: ${stage}, Text: ${text}`);
-        
         progressBar.style.width = percent + '%';
         if (progressPercent) progressPercent.textContent = percent + '%';
         progressText.textContent = text || (percent === 0 ? 'Idle' : percent + '%');
         
         if (stage && progressStage) {
             const stageLabels = {
-                'Initializing': '🔧 Initializing...',
-                'ForwardElimination': '⚡ Forward Elimination',
-                'BackSubstitution': '🔄 Back Substitution',
-                'Finalizing': '✨ Finalizing...',
-                'Completed': '✅ Completed!',
-                'Cancelled': '❌ Cancelled',
-                'Failed': '❌ Failed'
+                'Initializing': 'Initializing...',
+                'ForwardElimination': 'Forward Elimination',
+                'BackSubstitution': 'Back Substitution',
+                'Finalizing': 'Finalizing...',
+                'Completed': 'Completed!',
+                'Cancelled': 'Cancelled',
+                'Failed': 'Failed'
             };
             progressStage.textContent = stageLabels[stage] || stage;
-            console.log(`[UI] Stage label set to: ${stageLabels[stage] || stage}`);
         }
 
         // Show/hide cancel button
@@ -189,9 +173,21 @@
             const el = document.createElement('div');
             el.className = 'history-item';
             const solution = h.success ? JSON.parse(h.solution) : null;
+            
+            // Convert UTC to Kyiv time (UTC+2)
+            const kyivTime = new Date(h.createdAt).toLocaleString('uk-UA', {
+                timeZone: 'Europe/Kiev',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
             el.innerHTML = `
                 <div>
-                    <div style="font-weight:600">${h.time}</div>
+                    <div style="font-weight:600">${kyivTime}</div>
                     <small class="hint">${h.size}×${h.size}</small>
                 </div>
                 <div style="color:${h.success ? '' : '#ff6b6b'}">
@@ -292,23 +288,16 @@
 
     // Solve
     $('solve').addEventListener('click', async () => {
-        console.log('[Solve] Button clicked');
         resultEl.hidden = true;
         
-        // Generate taskId on client side BEFORE sending request
         currentTaskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
-        console.log('[Solve] Generated taskId:', currentTaskId);
-        
         setProgress(0, 'Starting...', 'Initializing');
         if (cancelBtn) cancelBtn.disabled = false;
         
         try {
             if (size < 10) {
-                // Small matrix
-                console.log('[Solve] Solving small matrix', size + 'x' + size);
                 const { rows, rhs } = readMatrix();
                 
-                console.log('[Solve] Sending request to /api/matrix/solve with taskId:', currentTaskId);
                 const res = await fetch('/api/matrix/solve', {
                     method: 'POST',
                     headers: { 
@@ -323,26 +312,19 @@
                 });
                 
                 const data = await res.json();
-                console.log('[Solve] Response received:', data);
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // Progress is handled by SignalR
-                // Wait a bit for final progress update
-                console.log('[Solve] Waiting for progress updates...');
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                
-                console.log('[Solve] Showing result');
                 showResult(data.success 
                     ? `Solution: [${data.solution.map(v => v.toFixed(6)).join(', ')}]`
                     : `Error: ${data.error}`, !data.success);
                 
                 currentTaskId = null;
-                console.log('[Solve] Task completed');
             } else {
-                // Large matrix
-                console.log('[Solve] Solving large matrix', size + 'x' + size);
-                if (!matrixId) { alert('Generate matrix first!'); return; }
+                if (!matrixId) { 
+                    alert('Generate matrix first!'); 
+                    return; 
+                }
                 
-                console.log('[Solve] Sending request to /api/matrix/solve-stored with taskId:', currentTaskId);
                 const res = await fetch('/api/matrix/solve-stored', {
                     method: 'POST',
                     headers: { 
@@ -355,10 +337,7 @@
                     })
                 });
                 const data = await res.json();
-                
-                // Progress is handled by SignalR
-                // Wait a bit for final progress update
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
                 if (data.success) {
                     showResult(`✓ ${data.solutionSummary}`);
@@ -429,4 +408,3 @@
     loadHistory();
     setProgress(0);
 })();
-

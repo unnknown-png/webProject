@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using System.Text.Json;
@@ -21,6 +20,11 @@ public class MatrixController : Controller
     private readonly IMemoryCache _cache;
     private readonly IHubContext<ProgressHub> _hubContext;
     private readonly ITaskManager _taskManager;
+
+    // Validation constants
+    private const int MIN_MATRIX_SIZE = 2;
+    private const int MAX_MATRIX_SIZE = 4000;
+    private const double MAX_MATRIX_VALUE = 1e10;
 
     public MatrixController(
         IGaussianEliminationService gaussService,
@@ -53,6 +57,26 @@ public class MatrixController : Controller
             var size = request.Coefficients.Length;
             
             // Validate matrix size
+            if (size < MIN_MATRIX_SIZE || size > MAX_MATRIX_SIZE)
+            {
+                return BadRequest(new 
+                { 
+                    success = false, 
+                    error = $"Matrix size must be between {MIN_MATRIX_SIZE} and {MAX_MATRIX_SIZE}" 
+                });
+            }
+
+            // Validate matrix values (NaN, Infinity, too large numbers)
+            if (!ValidateMatrixValues(request.Coefficients, request.RightHandSide))
+            {
+                return BadRequest(new 
+                { 
+                    success = false, 
+                    error = "Matrix contains invalid values (NaN, Infinity, or values exceeding allowed range)" 
+                });
+            }
+
+            // For display optimization: small matrices (<10) can be sent directly
             if (size >= 10)
             {
                 return BadRequest(new 
@@ -120,6 +144,15 @@ public class MatrixController : Controller
                 taskId
             });
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Matrix calculation timeout exceeded (30 seconds)");
+            return StatusCode(408, new 
+            { 
+                success = false, 
+                error = "Calculation timeout (30 seconds exceeded). Try smaller matrix or cancel sooner." 
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error solving matrix");
@@ -135,6 +168,16 @@ public class MatrixController : Controller
         if (!ModelState.IsValid)
         {
             return BadRequest(new { success = false, error = "Invalid request data" });
+        }
+
+        // Validate matrix size
+        if (request.Size < MIN_MATRIX_SIZE || request.Size > MAX_MATRIX_SIZE)
+        {
+            return BadRequest(new 
+            { 
+                success = false, 
+                error = $"Matrix size must be between {MIN_MATRIX_SIZE} and {MAX_MATRIX_SIZE}" 
+            });
         }
 
         try
@@ -187,6 +230,8 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
+        string? taskId = null;
+
         try
         {
             var cacheKey = $"matrix_{request.MatrixId}";
@@ -199,7 +244,7 @@ public class MatrixController : Controller
             _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size}");
             
             // Create task ID for tracking (use client-provided taskId or generate new one)
-            var taskId = !string.IsNullOrEmpty(request.TaskId) 
+            taskId = !string.IsNullOrEmpty(request.TaskId) 
                 ? _taskManager.CreateTask(request.TaskId)
                 : _taskManager.CreateTask();
             
@@ -263,6 +308,20 @@ public class MatrixController : Controller
                 taskId
             });
         }
+        catch (OperationCanceledException)
+        {
+            if (taskId != null)
+            {
+                _taskManager.RemoveTask(taskId);
+            }
+            _logger.LogWarning("Stored matrix calculation timeout exceeded (30 seconds)");
+            return StatusCode(408, new 
+            { 
+                success = false, 
+                error = "Calculation timeout (30 seconds exceeded). Matrix is too large or computation is too complex.",
+                taskId
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error solving stored matrix");
@@ -288,121 +347,39 @@ public class MatrixController : Controller
         }
     }
 
-    // API: Get user's calculation history
-    [HttpGet]
-    [Route("api/matrix/history")]
-    public async Task<IActionResult> GetHistory([FromQuery] int limit = 20)
+    // Private helper method for validating matrix values
+    private bool ValidateMatrixValues(double[][] coefficients, double[] rightHandSide)
     {
-        try
+        // Validate coefficients
+        foreach (var row in coefficients)
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdClaim, out int userId))
+            foreach (var value in row)
             {
-                return Unauthorized(new { success = false, error = "User not authenticated" });
+                if (double.IsNaN(value) || double.IsInfinity(value))
+                {
+                    return false;
+                }
+                if (Math.Abs(value) > MAX_MATRIX_VALUE)
+                {
+                    return false;
+                }
             }
-
-            var historyData = await _context.CalculationHistories
-                .Where(h => h.UserId == userId)
-                .OrderByDescending(h => h.CreatedAt)
-                .Take(Math.Min(limit, 100))
-                .ToListAsync();
-            
-            // Convert UTC to Kyiv time for display
-            var history = historyData.Select(h => new
-            {
-                id = h.Id,
-                size = h.Size,
-                success = h.Success,
-                solution = h.Solution,
-                errorMessage = h.ErrorMessage,
-                createdAt = TimeZoneHelper.ToKyivTime(h.CreatedAt),
-                time = TimeZoneHelper.ToKyivTime(h.CreatedAt).ToString("g")
-            }).ToList();
-
-            return Ok(new { success = true, history });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving history");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
-        }
-    }
 
-    // API: Clear user's calculation history
-    [HttpDelete]
-    [Route("api/matrix/history")]
-    public async Task<IActionResult> ClearHistory()
-    {
-        try
+        // Validate right hand side
+        foreach (var value in rightHandSide)
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdClaim, out int userId))
+            if (double.IsNaN(value) || double.IsInfinity(value))
             {
-                return Unauthorized(new { success = false, error = "User not authenticated" });
+                return false;
             }
-
-            var historyItems = await _context.CalculationHistories
-                .Where(h => h.UserId == userId)
-                .ToListAsync();
-
-            _context.CalculationHistories.RemoveRange(historyItems);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { success = true, message = "History cleared successfully" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error clearing history");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
-        }
-    }
-
-    // API: Export history as JSON
-    [HttpGet]
-    [Route("api/matrix/history/export")]
-    public async Task<IActionResult> ExportHistory()
-    {
-        try
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdClaim, out int userId))
+            if (Math.Abs(value) > MAX_MATRIX_VALUE)
             {
-                return Unauthorized(new { success = false, error = "User not authenticated" });
+                return false;
             }
-
-            var historyData = await _context.CalculationHistories
-                .Where(h => h.UserId == userId)
-                .OrderByDescending(h => h.CreatedAt)
-                .ToListAsync();
-            
-            // Convert UTC to Kyiv time for export
-            var history = historyData.Select(h => new
-            {
-                id = h.Id,
-                size = h.Size,
-                success = h.Success,
-                matrixData = h.MatrixData,
-                solution = h.Solution,
-                errorMessage = h.ErrorMessage,
-                createdAt = TimeZoneHelper.ToKyivTime(h.CreatedAt)
-            }).ToList();
-
-            var json = JsonSerializer.Serialize(history, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-
-            return File(
-                System.Text.Encoding.UTF8.GetBytes(json),
-                "application/json",
-                $"gauss_history_{TimeZoneHelper.KyivNow:yyyyMMdd_HHmmss}.json"
-            );
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error exporting history");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
-        }
+
+        return true;
     }
 }
 

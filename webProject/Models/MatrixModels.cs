@@ -50,3 +50,24 @@ public class GeneratedMatrix
     public int Size { get; set; }
 }
 
+public class LUDecompositionResult
+{
+    public double[][] LMatrix { get; set; } = Array.Empty<double[]>();
+    public double[][] UMatrix { get; set; } = Array.Empty<double[]>();
+    public double Determinant { get; set; }
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+    public int Size { get; set; }
+}
+
+public class CombinedSolutionResult
+{
+    public MatrixSolution GaussianSolution { get; set; } = new();
+    public LUDecompositionResult LUDecomposition { get; set; } = new();
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+    public int Size { get; set; }
+    public DateTime SolvedAt { get; set; }
+    public double ComputationTimeSeconds { get; set; }
+}
+

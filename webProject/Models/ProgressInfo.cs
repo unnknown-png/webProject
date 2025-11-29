@@ -13,6 +13,7 @@ public enum CalculationStage
     Initializing,
     ForwardElimination,
     BackSubstitution,
+    LUDecomposition,
     Finalizing,
     Completed,
     Cancelled,

@@ -1,5 +1,6 @@
 using webProject.Models;
 using webProject.Helpers;
+using webProject.Constants;
 
 namespace webProject.Services;
 
@@ -31,13 +32,13 @@ public class GaussianEliminationService : IGaussianEliminationService
                 // Report initialization
                 progress?.Report(new ProgressInfo
                 {
-                    Percent = 0,
+                    Percent = MatrixConstants.ProgressInitStart,
                     Stage = CalculationStage.Initializing.ToString(),
                     Message = $"Starting computation for {n}×{n} system..."
                 });
                 
                 // Give time for UI to update
-                await Task.Delay(100, cancellationToken);
+                await Task.Delay(MatrixConstants.InitializationDelay, cancellationToken);
                 
                 // Check for cancellation
                 cancellationToken.ThrowIfCancellationRequested();
@@ -58,15 +59,15 @@ public class GaussianEliminationService : IGaussianEliminationService
                 var b = rightHandSide.ToArray();
 
                 // Simulate delay for small matrices to show progress
-                if (n < 100)
+                if (n < MatrixConstants.SmallMatrixThresholdForDelay)
                 {
-                    await Task.Delay(200, cancellationToken);
+                    await Task.Delay(MatrixConstants.SmallMatrixBaseDelay, cancellationToken);
                 }
 
                 // Report start of forward elimination
                 progress?.Report(new ProgressInfo
                 {
-                    Percent = 5,
+                    Percent = MatrixConstants.ProgressInitEnd,
                     Stage = CalculationStage.ForwardElimination.ToString(),
                     Message = "Performing forward elimination with partial pivoting..."
                 });

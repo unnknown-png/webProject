@@ -32,7 +32,7 @@ const ValidationModule = (() => {
     function showResult(message, isError = false) {
         if (resultEl) {
             resultEl.hidden = false;
-            resultEl.textContent = message;
+            resultEl.innerHTML = message; // Changed from textContent to innerHTML to support HTML formatting
             resultEl.style.color = isError ? '#ff6b6b' : '';
         }
     }

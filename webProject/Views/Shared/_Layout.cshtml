@@ -1,4 +1,4 @@
-﻿﻿﻿@{
+﻿@{
     var title = ViewData["Title"] as string ?? "Gauss Solver";
     var theme = Context.Request.Cookies["theme"] ?? "dark"; // default to dark
 }
@@ -53,7 +53,7 @@
             <strong>Gauss Solver</strong> — demo version for education. Created by Andrew Kahnovets.
         </div>
         <div class="footer-right">
-            <small>Version 0.7 • <a href="mailto:kahnovets.ap@gmail.com">kahnovets.ap@gmail.com</a></small>
+            <small>Version 0.8 • <a href="mailto:kahnovets.ap@gmail.com">kahnovets.ap@gmail.com</a></small>
         </div>
     </div>
 </footer>
@@ -65,6 +65,8 @@
 <script src="~/js/matrix.js" asp-append-version="true"></script>
 <script src="~/js/history.js" asp-append-version="true"></script>
 <script src="~/js/theme.js" asp-append-version="true"></script>
+<script src="~/js/result-renderer.js" asp-append-version="true"></script>
+<script src="~/js/navigation.js" asp-append-version="true"></script>
 <script src="~/js/site.js" asp-append-version="true"></script>
 @RenderSection("Scripts", required: false)
 </body>

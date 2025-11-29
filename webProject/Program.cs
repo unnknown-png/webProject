@@ -10,7 +10,13 @@ using webProject.Data;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.MaxDepth = 64; // Increase max depth for nested objects
+        options.JsonSerializerOptions.DefaultBufferSize = 16 * 1024; // 16KB buffer
+        options.JsonSerializerOptions.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals; // Allow Infinity/NaN
+    });
 
 // Add Memory Cache
 builder.Services.AddMemoryCache();
@@ -21,6 +27,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Register services
 builder.Services.AddScoped<IGaussianEliminationService, GaussianEliminationService>();
+builder.Services.AddScoped<ILUDecompositionService, LUDecompositionService>();
+builder.Services.AddScoped<ICombinedMatrixService, CombinedMatrixService>();
 builder.Services.AddSingleton<ITaskManager, TaskManager>();
 
 // Add SignalR

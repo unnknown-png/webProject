@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -9,25 +10,25 @@ using webProject.Hubs;
 using webProject.Models;
 using webProject.Services;
 using webProject.Helpers;
+using webProject.Constants;
 
 namespace webProject.Controllers;
+
 [Authorize]
 public class MatrixController : Controller
 {
     private readonly IGaussianEliminationService _gaussService;
+    private readonly ICombinedMatrixService _combinedService;
     private readonly ApplicationDbContext _context;
     private readonly ILogger<MatrixController> _logger;
     private readonly IMemoryCache _cache;
     private readonly IHubContext<ProgressHub> _hubContext;
     private readonly ITaskManager _taskManager;
 
-    // Validation constants
-    private const int MIN_MATRIX_SIZE = 2;
-    private const int MAX_MATRIX_SIZE = 4000;
-    private const double MAX_MATRIX_VALUE = 1e10;
 
     public MatrixController(
         IGaussianEliminationService gaussService,
+        ICombinedMatrixService combinedService,
         ApplicationDbContext context,
         ILogger<MatrixController> logger,
         IMemoryCache cache,
@@ -35,6 +36,7 @@ public class MatrixController : Controller
         ITaskManager taskManager)
     {
         _gaussService = gaussService;
+        _combinedService = combinedService;
         _context = context;
         _logger = logger;
         _cache = cache;
@@ -57,12 +59,12 @@ public class MatrixController : Controller
             var size = request.Coefficients.Length;
             
             // Validate matrix size
-            if (size < MIN_MATRIX_SIZE || size > MAX_MATRIX_SIZE)
+            if (size < MatrixConstants.MinMatrixSize || size > MatrixConstants.MaxMatrixSize)
             {
                 return BadRequest(new 
                 { 
                     success = false, 
-                    error = $"Matrix size must be between {MIN_MATRIX_SIZE} and {MAX_MATRIX_SIZE}" 
+                    error = $"Matrix size must be between {MatrixConstants.MinMatrixSize} and {MatrixConstants.MaxMatrixSize}" 
                 });
             }
 
@@ -77,12 +79,12 @@ public class MatrixController : Controller
             }
 
             // For display optimization: small matrices (<10) can be sent directly
-            if (size >= 10)
+            if (size >= MatrixConstants.SmallMatrixThreshold)
             {
                 return BadRequest(new 
                 { 
                     success = false, 
-                    error = "For matrices >= 10x10, please use the generate and solve-stored endpoints" 
+                    error = $"For matrices >= {MatrixConstants.SmallMatrixThreshold}x{MatrixConstants.SmallMatrixThreshold}, please use the generate and solve-stored endpoints" 
                 });
             }
 
@@ -106,7 +108,8 @@ public class MatrixController : Controller
                 }
             });
 
-            var solution = await _gaussService.SolveAsync(
+            // Use combined service to solve and decompose simultaneously
+            var result = await _combinedService.SolveAndDecomposeAsync(
                 request.Coefficients, 
                 request.RightHandSide, 
                 progress,
@@ -124,9 +127,9 @@ public class MatrixController : Controller
                     UserId = userId,
                     Size = request.Coefficients.Length,
                     MatrixData = JsonSerializer.Serialize(request),
-                    Solution = JsonSerializer.Serialize(solution.Solution),
-                    Success = solution.Success,
-                    ErrorMessage = solution.ErrorMessage,
+                    Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
+                    Success = result.Success,
+                    ErrorMessage = result.ErrorMessage,
                     CreatedAt = TimeZoneHelper.UtcNow
                 };
 
@@ -134,23 +137,61 @@ public class MatrixController : Controller
                 await _context.SaveChangesAsync();
             }
 
+            // Check for invalid numbers (Infinity, NaN)
+            double? determinant = null;
+            if (result.LUDecomposition.Success)
+            {
+                var det = result.LUDecomposition.Determinant;
+                if (!double.IsNaN(det) && !double.IsInfinity(det))
+                {
+                    determinant = det;
+                }
+            }
+
             return Ok(new
             {
-                success = solution.Success,
-                solution = solution.Solution,
-                error = solution.ErrorMessage,
-                size = solution.Size,
-                solvedAt = solution.SolvedAt,
+                success = result.Success,
+                solution = result.GaussianSolution.Solution,
+                error = result.ErrorMessage,
+                size = result.Size,
+                solvedAt = result.SolvedAt,
+                determinant = determinant,
+                luDecomposition = result.LUDecomposition.Success && size < MatrixConstants.SmallMatrixThreshold ? new
+                {
+                    lMatrix = result.LUDecomposition.LMatrix,
+                    uMatrix = result.LUDecomposition.UMatrix
+                } : null,
+                computationTime = result.ComputationTimeSeconds,
                 taskId
             });
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Matrix calculation timeout exceeded (30 seconds)");
+            _logger.LogWarning("Matrix calculation was cancelled by user");
+            
+            // Save cancellation to history
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdClaim, out int userId))
+            {
+                var history = new CalculationHistory
+                {
+                    UserId = userId,
+                    Size = request.Coefficients.Length,
+                    MatrixData = JsonSerializer.Serialize(request),
+                    Solution = "[]",
+                    Success = false,
+                    ErrorMessage = "Calculation was cancelled by user",
+                    CreatedAt = TimeZoneHelper.UtcNow
+                };
+
+                _context.CalculationHistories.Add(history);
+                await _context.SaveChangesAsync();
+            }
+            
             return StatusCode(408, new 
             { 
                 success = false, 
-                error = "Calculation timeout (30 seconds exceeded). Try smaller matrix or cancel sooner." 
+                error = "Calculation was cancelled by user"
             });
         }
         catch (Exception ex)
@@ -171,12 +212,12 @@ public class MatrixController : Controller
         }
 
         // Validate matrix size
-        if (request.Size < MIN_MATRIX_SIZE || request.Size > MAX_MATRIX_SIZE)
+        if (request.Size < MatrixConstants.MinMatrixSize || request.Size > MatrixConstants.MaxMatrixSize)
         {
             return BadRequest(new 
             { 
                 success = false, 
-                error = $"Matrix size must be between {MIN_MATRIX_SIZE} and {MAX_MATRIX_SIZE}" 
+                error = $"Matrix size must be between {MatrixConstants.MinMatrixSize} and {MatrixConstants.MaxMatrixSize}" 
             });
         }
 
@@ -185,13 +226,13 @@ public class MatrixController : Controller
             var matrix = _gaussService.GenerateRandomMatrix(request.Size, request.MinValue, request.MaxValue);
             
             // For large matrices (>= 10), store in cache and return matrixId
-            if (request.Size >= 10)
+            if (request.Size >= MatrixConstants.SmallMatrixThreshold)
             {
                 var matrixId = Guid.NewGuid().ToString();
                 var cacheKey = $"matrix_{matrixId}";
                 
                 // Store for 30 minutes
-                _cache.Set(cacheKey, matrix, TimeSpan.FromMinutes(30));
+                _cache.Set(cacheKey, matrix, TimeSpan.FromMinutes(MatrixConstants.MatrixCacheExpirationMinutes));
                 
                 _logger.LogInformation($"Generated and cached matrix {request.Size}x{request.Size} with ID: {matrixId}");
                 
@@ -223,6 +264,7 @@ public class MatrixController : Controller
     // API: Solve stored matrix (for large matrices)
     [HttpPost]
     [Route("api/matrix/solve-stored")]
+    [SuppressMessage("ReSharper.DPA", "DPA0000: DPA issues")]
     public async Task<IActionResult> SolveStored([FromBody] StoredMatrixRequest request)
     {
         if (!ModelState.IsValid)
@@ -241,7 +283,7 @@ public class MatrixController : Controller
                 return NotFound(new { success = false, error = "Matrix not found or expired. Please generate a new one." });
             }
 
-            _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size}");
+            _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size} with LU decomposition");
             
             // Create task ID for tracking (use client-provided taskId or generate new one)
             taskId = !string.IsNullOrEmpty(request.TaskId) 
@@ -263,7 +305,8 @@ public class MatrixController : Controller
                 }
             });
 
-            var solution = await _gaussService.SolveAsync(
+            // Use combined service to solve and decompose simultaneously
+            var result = await _combinedService.SolveAndDecomposeAsync(
                 matrix.Coefficients, 
                 matrix.RightHandSide,
                 progress,
@@ -284,9 +327,9 @@ public class MatrixController : Controller
                     UserId = userId,
                     Size = matrix.Size,
                     MatrixData = JsonSerializer.Serialize(new { size = matrix.Size, matrixId = request.MatrixId }),
-                    Solution = JsonSerializer.Serialize(solution.Solution),
-                    Success = solution.Success,
-                    ErrorMessage = solution.ErrorMessage,
+                    Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
+                    Success = result.Success,
+                    ErrorMessage = result.ErrorMessage,
                     CreatedAt = TimeZoneHelper.UtcNow
                 };
 
@@ -294,19 +337,70 @@ public class MatrixController : Controller
                 await _context.SaveChangesAsync();
             }
 
-            // For large matrices, return summarized result
-            return Ok(new
+            // Prepare response - don't send large arrays for big matrices
+            // Also check for invalid numbers (Infinity, NaN)
+            double? determinant = null;
+            if (result.LUDecomposition.Success)
             {
-                success = solution.Success,
-                size = solution.Size,
-                solutionSummary = solution.Success 
-                    ? $"Solution computed successfully. First 5 values: [{string.Join(", ", solution.Solution.Take(5).Select(v => v.ToString("F4")))}...]"
-                    : null,
-                solutionLength = solution.Solution?.Length ?? 0,
-                error = solution.ErrorMessage,
-                solvedAt = solution.SolvedAt,
-                taskId
-            });
+                var det = result.LUDecomposition.Determinant;
+                if (!double.IsNaN(det) && !double.IsInfinity(det))
+                {
+                    determinant = det;
+                }
+                else
+                {
+                    _logger.LogWarning($"Invalid determinant value for matrix {matrix.Size}x{matrix.Size}: {det} - this is normal for large matrices");
+                }
+            }
+            
+            // Check if solution contains invalid values
+            bool solutionValid = result.GaussianSolution.Solution.All(v => !double.IsNaN(v) && !double.IsInfinity(v));
+            
+            object response;
+            
+            if (matrix.Size < MatrixConstants.SmallMatrixThreshold)
+            {
+                // For small matrices, send everything including LU matrices
+                response = new
+                {
+                    success = result.Success,
+                    size = result.Size,
+                    solution = result.GaussianSolution.Solution,
+                    determinant = determinant,
+                    luDecomposition = result.LUDecomposition.Success ? new
+                    {
+                        lMatrix = result.LUDecomposition.LMatrix,
+                        uMatrix = result.LUDecomposition.UMatrix
+                    } : null,
+                    error = result.ErrorMessage,
+                    solvedAt = result.SolvedAt,
+                    computationTime = result.ComputationTimeSeconds,
+                    taskId
+                };
+            }
+            else
+            {
+                // For large matrices, send only summary to avoid JSON overflow
+                var summaryMessage = result.GaussianSolution.Success && solutionValid
+                    ? $"Solution computed successfully. First 5 values: [{string.Join(", ", result.GaussianSolution.Solution.Take(5).Select(v => v.ToString("F4")))}...]"
+                    : "Solution computed (contains special values)";
+                
+                response = new
+                {
+                    success = result.Success,
+                    size = result.Size,
+                    solutionSummary = summaryMessage,
+                    solutionLength = result.GaussianSolution.Solution?.Length ?? 0,
+                    determinant = determinant,
+                    luNote = $"LU decomposition matrices are not displayed for large matrices (size >= {MatrixConstants.SmallMatrixThreshold}) to avoid performance issues",
+                    error = result.ErrorMessage,
+                    solvedAt = result.SolvedAt,
+                    computationTime = result.ComputationTimeSeconds,
+                    taskId
+                };
+            }
+
+            return Ok(response);
         }
         catch (OperationCanceledException)
         {
@@ -314,11 +408,40 @@ public class MatrixController : Controller
             {
                 _taskManager.RemoveTask(taskId);
             }
-            _logger.LogWarning("Stored matrix calculation timeout exceeded (30 seconds)");
+            
+            _logger.LogWarning("Stored matrix calculation was cancelled by user");
+            
+            // Save cancellation to history
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdClaim, out int userId))
+            {
+                // Try to get matrix from cache to know the size
+                var cacheKey = $"matrix_{request.MatrixId}";
+                int matrixSize = 0;
+                if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
+                {
+                    matrixSize = cachedMatrix?.Size ?? 0;
+                }
+                
+                var history = new CalculationHistory
+                {
+                    UserId = userId,
+                    Size = matrixSize > 0 ? matrixSize : 0,
+                    MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
+                    Solution = "[]",
+                    Success = false,
+                    ErrorMessage = "Calculation was cancelled by user",
+                    CreatedAt = TimeZoneHelper.UtcNow
+                };
+
+                _context.CalculationHistories.Add(history);
+                await _context.SaveChangesAsync();
+            }
+            
             return StatusCode(408, new 
             { 
                 success = false, 
-                error = "Calculation timeout (30 seconds exceeded). Matrix is too large or computation is too complex.",
+                error = "Calculation was cancelled by user",
                 taskId
             });
         }
@@ -359,7 +482,7 @@ public class MatrixController : Controller
                 {
                     return false;
                 }
-                if (Math.Abs(value) > MAX_MATRIX_VALUE)
+                if (Math.Abs(value) > MatrixConstants.MaxMatrixValue)
                 {
                     return false;
                 }
@@ -373,7 +496,7 @@ public class MatrixController : Controller
             {
                 return false;
             }
-            if (Math.Abs(value) > MAX_MATRIX_VALUE)
+            if (Math.Abs(value) > MatrixConstants.MaxMatrixValue)
             {
                 return false;
             }

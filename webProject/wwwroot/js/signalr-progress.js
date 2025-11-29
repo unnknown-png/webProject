@@ -143,7 +143,14 @@ const SignalRProgressModule = (() => {
             cancelBtn.disabled = false;
             cancelBtn.style.display = 'none';
         }
-        setTimeout(() => clearProgress(), 2000);
+        
+        // Reload history to show error/cancellation
+        setTimeout(() => {
+            clearProgress();
+            if (typeof HistoryModule !== 'undefined' && HistoryModule.loadHistory) {
+                HistoryModule.loadHistory();
+            }
+        }, 500);
     }
 
     async function finalizeSuccess() {

@@ -1,5 +1,5 @@
-// THEME AND NAVIGATION MODULE
-// Handles theme switching, navigation, and utility functions
+// THEME MODULE
+// Handles theme switching between dark and light modes
 
 const ThemeModule = (() => {
     const THEME_KEY = 'gauss_theme';
@@ -35,36 +35,6 @@ const ThemeModule = (() => {
     };
 })();
 
-// NAVIGATION MODULE
-const NavigationModule = (() => {
-    function setupNavigation() {
-        // Home link - scroll to top
-        const homeLink = document.getElementById('homeLink');
-        if (homeLink) {
-            homeLink.addEventListener('click', (e) => {
-                e.preventDefault();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            });
-        }
-        
-        // History link - scroll to history section
-        const historyLink = document.querySelector('a.nav-link[href="#history-section"]');
-        if (historyLink) {
-            historyLink.addEventListener('click', (e) => {
-                e.preventDefault();
-                const target = document.getElementById('history-section');
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            });
-        }
-    }
-
-    return {
-        setupNavigation
-    };
-})();
-
 // PASSWORD TOGGLE (for Login/Register pages)
 function togglePassword(inputId, button) {
     const input = document.getElementById(inputId);
@@ -79,4 +49,6 @@ function togglePassword(inputId, button) {
         button.setAttribute('aria-label', 'Show password');
     }
 }
+
+
 

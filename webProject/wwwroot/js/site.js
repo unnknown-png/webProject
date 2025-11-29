@@ -61,6 +61,10 @@
             const cancelled = await SignalRProgressModule.cancelTask();
             if (cancelled) {
                 ValidationModule.showResult('Calculation was cancelled by user', false);
+                // Reload history to show the cancelled task
+                setTimeout(() => {
+                    HistoryModule.loadHistory();
+                }, 500);
             }
         });
     }
@@ -123,17 +127,14 @@
             const shouldContinue = await SignalRProgressModule.finalizeSuccess();
             if (!shouldContinue) return;
             
-            // Show results
+            // Show results using ResultRenderer module
             if (result.isSmall) {
-                ValidationModule.showResult(
-                    result.data.success 
-                        ? `Solution: [${result.data.solution.map(v => v.toFixed(6)).join(', ')}]`
-                        : `Error: ${result.data.error}`, 
-                    !result.data.success
-                );
+                const resultHTML = ResultRenderer.renderSmallMatrixResult(result.data);
+                ValidationModule.showResult(resultHTML);
             } else {
                 if (result.data.success) {
-                    ValidationModule.showResult(`✓ ${result.data.solutionSummary}`);
+                    const resultHTML = ResultRenderer.renderLargeMatrixResult(result.data);
+                    ValidationModule.showResult(resultHTML);
                     MatrixModule.clearMatrixId();
                     MatrixModule.showSummary(MatrixModule.getSize(), `Solved! Check history.`);
                 } else {

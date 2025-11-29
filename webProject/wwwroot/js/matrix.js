@@ -130,6 +130,107 @@ const MatrixModule = (() => {
         size < 10 ? buildMatrix(size) : showSummary(size);
     }
 
+    // Generate random matrix
+    async function generateRandom(progressCallback, resultCallback) {
+        try {
+            if (progressCallback) progressCallback(0, 'Generating...');
+            
+            const res = await fetch('/api/matrix/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ size, minValue: -200, maxValue: 200 })
+            });
+            const data = await res.json();
+            
+            if (!data.success) {
+                if (resultCallback) resultCallback(data.error || 'Failed', true);
+                if (progressCallback) progressCallback(0);
+                return false;
+            }
+
+            if (size < 10) {
+                fillMatrixWithData(data.coefficients, data.rightHandSide);
+                if (progressCallback) progressCallback(100, 'Ready');
+            } else {
+                matrixId = data.matrixId;
+                showSummary(size, `✓ ${data.message}<br><small>Click "Solve" to compute.</small>`);
+                if (progressCallback) progressCallback(100, 'Ready');
+            }
+            return true;
+        } catch (err) {
+            if (resultCallback) resultCallback('Server error', true);
+            if (progressCallback) progressCallback(0);
+            return false;
+        }
+    }
+
+    // Solve matrix
+    async function solveMatrix(taskId, progressModule, validationModule) {
+        try {
+            if (size < 10) {
+                // Small matrix - solve directly
+                const { rows, rhs } = readMatrix();
+                
+                if (!validationModule.validateMatrixValues(rows, rhs)) {
+                    progressModule.setProgress(0, 'Idle');
+                    progressModule.setCurrentTaskId(null);
+                    return { success: false };
+                }
+                
+                const res = await fetch('/api/matrix/solve', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Task-Id': taskId
+                    },
+                    body: JSON.stringify({ 
+                        coefficients: rows, 
+                        rightHandSide: rhs,
+                        taskId: taskId
+                    })
+                });
+                
+                const data = await res.json();
+                
+                // Check for errors
+                if (!res.ok) {
+                    return { success: false, error: true, data };
+                }
+                
+                return { success: true, data, isSmall: true };
+            } else {
+                // Large matrix - solve stored
+                if (!matrixId) {
+                    return { success: false, needsGeneration: true };
+                }
+                
+                const res = await fetch('/api/matrix/solve-stored', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Task-Id': taskId
+                    },
+                    body: JSON.stringify({ 
+                        matrixId,
+                        taskId: taskId
+                    })
+                });
+                
+                const data = await res.json();
+                
+                // Check for errors
+                if (!res.ok) {
+                    return { success: false, error: true, data };
+                }
+                
+                return { success: true, data, isSmall: false };
+            }
+        } catch (err) {
+            console.error('Solve error:', err);
+            return { success: false, exception: err };
+        }
+    }
+
     return {
         init,
         setSize,
@@ -142,7 +243,9 @@ const MatrixModule = (() => {
         readMatrix,
         fillMatrixWithData,
         clearMatrix,
-        updateMatrixDisplay
+        updateMatrixDisplay,
+        generateRandom,
+        solveMatrix
     };
 })();
 

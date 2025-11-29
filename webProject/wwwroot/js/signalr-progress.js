@@ -4,6 +4,7 @@
 const SignalRProgressModule = (() => {
     let connection = null;
     let currentTaskId = null;
+    let isCancelled = false;
     
     // DOM references
     let progressBar = null;
@@ -33,7 +34,7 @@ const SignalRProgressModule = (() => {
             .build();
 
         connection.on("ReceiveProgress", (taskId, percent, stage, message) => {
-            if (taskId === currentTaskId) {
+            if (taskId === currentTaskId && !isCancelled) {
                 setProgress(percent, message, stage);
             }
         });
@@ -72,19 +73,25 @@ const SignalRProgressModule = (() => {
 
     function setCurrentTaskId(taskId) {
         currentTaskId = taskId;
+        isCancelled = false; // Reset cancelled flag for new task
     }
 
-    function getCurrentTaskId() {
-        return currentTaskId;
-    }
 
     function clearProgress() {
         setProgress(0, 'Idle');
         if (progressStage) progressStage.textContent = '';
+        isCancelled = false;
     }
 
     async function cancelTask() {
-        if (!currentTaskId) return;
+        if (!currentTaskId) return false;
+        
+        // Set cancelled flag immediately to prevent "Completed" from overwriting
+        isCancelled = true;
+        
+        // Get current progress percentage before cancelling
+        const currentPercent = progressBar ? 
+            parseInt(progressBar.style.width) || 0 : 0;
         
         try {
             const res = await fetch(`/api/matrix/cancel/${currentTaskId}`, {
@@ -92,12 +99,67 @@ const SignalRProgressModule = (() => {
             });
             const data = await res.json();
             if (data.success) {
-                setProgress(0, 'Cancelling...', 'Cancelled');
+                // Keep current percentage, only change status to Cancelled
+                setProgress(currentPercent, 'Cancelled', 'Cancelled');
                 if (cancelBtn) cancelBtn.disabled = true;
+                
+                // Clear progress and reset UI after a moment (don't change 3000 - user requirement)
+                setTimeout(() => {
+                    clearProgress();
+                    if (cancelBtn) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
+                    }
+                    currentTaskId = null;
+                }, 3000);
+                
+                return true; // Success, caller should show message
             }
+            return false;
         } catch (err) {
             console.error('Cancel error:', err);
+            // Still clear on error
+            setTimeout(() => {
+                clearProgress();
+                if (cancelBtn) cancelBtn.disabled = false;
+                currentTaskId = null;
+            }, 1000);
+            return false;
         }
+    }
+
+    function isCancelledTask() {
+        return isCancelled;
+    }
+
+    function handleError(data, resultCallback) {
+        setProgress(0, 'Error', 'Failed');
+        if (resultCallback) {
+            resultCallback(`Error: ${data.error || 'Request failed'}`, true);
+        }
+        currentTaskId = null;
+        
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.style.display = 'none';
+        }
+        setTimeout(() => clearProgress(), 2000);
+    }
+
+    async function finalizeSuccess() {
+        // Check if task was cancelled
+        if (isCancelled) {
+            return false; // Cancelled, don't continue
+        }
+        
+        // Wait for SignalR to receive 100% progress
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // Force 100% progress before showing result
+        setProgress(100, 'Completed', 'Completed');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        return true; // Continue with showing result
     }
 
     return {
@@ -105,9 +167,10 @@ const SignalRProgressModule = (() => {
         initSignalR,
         setProgress,
         setCurrentTaskId,
-        getCurrentTaskId,
         clearProgress,
-        cancelTask
+        cancelTask,
+        isCancelledTask,
+        handleError,
+        finalizeSuccess
     };
 })();
-

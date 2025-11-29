@@ -57,45 +57,26 @@
 
     // CANCEL BUTTON
     if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => SignalRProgressModule.cancelTask());
+        cancelBtn.addEventListener('click', async () => {
+            const cancelled = await SignalRProgressModule.cancelTask();
+            if (cancelled) {
+                ValidationModule.showResult('Calculation was cancelled by user', false);
+            }
+        });
     }
 
     // RANDOM GENERATION
     $('rand').addEventListener('click', async () => {
         resultEl.hidden = true;
         
-        const size = MatrixModule.getSize();
-        if (!ValidationModule.validateMatrixSize(size)) {
+        if (!ValidationModule.validateMatrixSize(MatrixModule.getSize())) {
             return;
         }
         
-        SignalRProgressModule.setProgress(0, 'Generating...');
-        try {
-            const res = await fetch('/api/matrix/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ size, minValue: -200, maxValue: 200 })
-            });
-            const data = await res.json();
-            
-            if (!data.success) {
-                ValidationModule.showResult(data.error || 'Failed', true);
-                SignalRProgressModule.setProgress(0);
-                return;
-            }
-
-            if (size < 10) {
-                MatrixModule.fillMatrixWithData(data.coefficients, data.rightHandSide);
-                SignalRProgressModule.setProgress(100, 'Ready');
-            } else {
-                MatrixModule.setMatrixId(data.matrixId);
-                MatrixModule.showSummary(size, `✓ ${data.message}<br><small>Click "Solve" to compute.</small>`);
-                SignalRProgressModule.setProgress(100, 'Ready');
-            }
-        } catch (err) {
-            ValidationModule.showResult('Server error', true);
-            SignalRProgressModule.setProgress(0);
-        }
+        await MatrixModule.generateRandom(
+            (percent, text) => SignalRProgressModule.setProgress(percent, text),
+            (msg, isError) => ValidationModule.showResult(msg, isError)
+        );
     });
 
     // CLEAR BUTTON
@@ -109,8 +90,7 @@
     $('solve').addEventListener('click', async () => {
         resultEl.hidden = true;
         
-        const size = MatrixModule.getSize();
-        if (!ValidationModule.validateMatrixSize(size)) {
+        if (!ValidationModule.validateMatrixSize(MatrixModule.getSize())) {
             return;
         }
         
@@ -120,77 +100,61 @@
         if (cancelBtn) cancelBtn.disabled = false;
         
         try {
-            if (size < 10) {
-                // Small matrix - solve directly
-                const { rows, rhs } = MatrixModule.readMatrix();
-                
-                if (!ValidationModule.validateMatrixValues(rows, rhs)) {
-                    SignalRProgressModule.setProgress(0, 'Idle');
+            const result = await MatrixModule.solveMatrix(taskId, SignalRProgressModule, ValidationModule);
+            
+            if (!result.success) {
+                if (result.needsGeneration) {
+                    alert('Generate matrix first!');
+                } else if (result.error) {
+                    SignalRProgressModule.handleError(result.data, ValidationModule.showResult);
+                } else if (result.exception) {
+                    ValidationModule.showResult('Server error', true);
+                    SignalRProgressModule.setProgress(0);
                     SignalRProgressModule.setCurrentTaskId(null);
-                    return;
+                    if (cancelBtn) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.style.display = 'none';
+                    }
                 }
-                
-                const res = await fetch('/api/matrix/solve', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Task-Id': taskId
-                    },
-                    body: JSON.stringify({ 
-                        coefficients: rows, 
-                        rightHandSide: rhs,
-                        taskId: taskId
-                    })
-                });
-                
-                const data = await res.json();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                ValidationModule.showResult(
-                    data.success 
-                        ? `Solution: [${data.solution.map(v => v.toFixed(6)).join(', ')}]`
-                        : `Error: ${data.error}`, 
-                    !data.success
-                );
-                
-                SignalRProgressModule.setCurrentTaskId(null);
-            } else {
-                // Large matrix - solve stored
-                const matrixId = MatrixModule.getMatrixId();
-                if (!matrixId) { 
-                    alert('Generate matrix first!'); 
-                    return; 
-                }
-                
-                const res = await fetch('/api/matrix/solve-stored', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Task-Id': taskId
-                    },
-                    body: JSON.stringify({ 
-                        matrixId,
-                        taskId: taskId
-                    })
-                });
-                const data = await res.json();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                if (data.success) {
-                    ValidationModule.showResult(`✓ ${data.solutionSummary}`);
-                    MatrixModule.clearMatrixId();
-                    MatrixModule.showSummary(size, `Solved! Check history.`);
-                } else {
-                    ValidationModule.showResult(`Error: ${data.error}`, true);
-                }
-                
-                SignalRProgressModule.setCurrentTaskId(null);
+                return;
             }
+            
+            // Finalize with 100% progress
+            const shouldContinue = await SignalRProgressModule.finalizeSuccess();
+            if (!shouldContinue) return;
+            
+            // Show results
+            if (result.isSmall) {
+                ValidationModule.showResult(
+                    result.data.success 
+                        ? `Solution: [${result.data.solution.map(v => v.toFixed(6)).join(', ')}]`
+                        : `Error: ${result.data.error}`, 
+                    !result.data.success
+                );
+            } else {
+                if (result.data.success) {
+                    ValidationModule.showResult(`✓ ${result.data.solutionSummary}`);
+                    MatrixModule.clearMatrixId();
+                    MatrixModule.showSummary(MatrixModule.getSize(), `Solved! Check history.`);
+                } else {
+                    ValidationModule.showResult(`Error: ${result.data.error}`, true);
+                }
+            }
+            
+            SignalRProgressModule.setCurrentTaskId(null);
+            setTimeout(() => SignalRProgressModule.clearProgress(), 2000);
+            
             HistoryModule.loadHistory();
         } catch (err) {
+            console.error('Solve error:', err);
             ValidationModule.showResult('Server error', true);
             SignalRProgressModule.setProgress(0);
             SignalRProgressModule.setCurrentTaskId(null);
+            
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.style.display = 'none';
+            }
         }
     });
 

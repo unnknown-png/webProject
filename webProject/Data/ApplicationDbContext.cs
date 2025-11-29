@@ -20,20 +20,49 @@ namespace webProject.Data
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                
+                // Indexes for fast lookups
                 entity.HasIndex(e => e.Email).IsUnique();
-                entity.Property(e => e.Email).HasMaxLength(256);
-                entity.Property(e => e.PasswordHash).HasMaxLength(256);
+                
+                // Required properties with constraints
+                entity.Property(e => e.Email)
+                    .IsRequired()
+                    .HasMaxLength(255);
+                    
+                entity.Property(e => e.PasswordHash)
+                    .IsRequired()
+                    .HasMaxLength(255);
+                    
+                entity.Property(e => e.CreatedAt)
+                    .IsRequired();
             });
 
             modelBuilder.Entity<CalculationHistory>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                
+                // Indexes for optimized queries
                 entity.HasIndex(e => e.UserId);
                 entity.HasIndex(e => e.CreatedAt);
-                entity.Property(e => e.MatrixData).IsRequired();
-                entity.Property(e => e.Solution).IsRequired();
-                entity.Property(e => e.CreatedAt).IsRequired();
+                entity.HasIndex(e => new { e.UserId, e.Success }); // Composite index for filtering user's successful/failed calculations
                 
+                // Required properties with constraints
+                entity.Property(e => e.Size)
+                    .IsRequired();
+                    
+                entity.Property(e => e.MatrixData)
+                    .IsRequired();
+                    
+                entity.Property(e => e.Solution)
+                    .IsRequired();
+                    
+                entity.Property(e => e.CreatedAt)
+                    .IsRequired();
+                
+                // Check constraint for positive matrix size
+                entity.ToTable(t => t.HasCheckConstraint("CK_CalculationHistory_MatrixSize", "\"Size\" > 0"));
+                
+                // Foreign key relationship with cascade delete
                 entity.HasOne(e => e.User)
                     .WithMany()
                     .HasForeignKey(e => e.UserId)

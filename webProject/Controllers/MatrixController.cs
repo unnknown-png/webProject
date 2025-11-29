@@ -9,9 +9,9 @@ using webProject.Data;
 using webProject.Hubs;
 using webProject.Models;
 using webProject.Services;
+using webProject.Helpers;
 
 namespace webProject.Controllers;
-
 [Authorize]
 public class MatrixController : Controller
 {
@@ -103,7 +103,7 @@ public class MatrixController : Controller
                     Solution = JsonSerializer.Serialize(solution.Solution),
                     Success = solution.Success,
                     ErrorMessage = solution.ErrorMessage,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = TimeZoneHelper.UtcNow
                 };
 
                 _context.CalculationHistories.Add(history);
@@ -242,7 +242,7 @@ public class MatrixController : Controller
                     Solution = JsonSerializer.Serialize(solution.Solution),
                     Success = solution.Success,
                     ErrorMessage = solution.ErrorMessage,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = TimeZoneHelper.UtcNow
                 };
 
                 _context.CalculationHistories.Add(history);
@@ -301,21 +301,23 @@ public class MatrixController : Controller
                 return Unauthorized(new { success = false, error = "User not authenticated" });
             }
 
-            var history = await _context.CalculationHistories
+            var historyData = await _context.CalculationHistories
                 .Where(h => h.UserId == userId)
                 .OrderByDescending(h => h.CreatedAt)
                 .Take(Math.Min(limit, 100))
-                .Select(h => new
-                {
-                    id = h.Id,
-                    size = h.Size,
-                    success = h.Success,
-                    solution = h.Solution,
-                    errorMessage = h.ErrorMessage,
-                    createdAt = h.CreatedAt,
-                    time = h.CreatedAt.ToString("g")
-                })
                 .ToListAsync();
+            
+            // Convert UTC to Kyiv time for display
+            var history = historyData.Select(h => new
+            {
+                id = h.Id,
+                size = h.Size,
+                success = h.Success,
+                solution = h.Solution,
+                errorMessage = h.ErrorMessage,
+                createdAt = TimeZoneHelper.ToKyivTime(h.CreatedAt),
+                time = TimeZoneHelper.ToKyivTime(h.CreatedAt).ToString("g")
+            }).ToList();
 
             return Ok(new { success = true, history });
         }
@@ -368,20 +370,22 @@ public class MatrixController : Controller
                 return Unauthorized(new { success = false, error = "User not authenticated" });
             }
 
-            var history = await _context.CalculationHistories
+            var historyData = await _context.CalculationHistories
                 .Where(h => h.UserId == userId)
                 .OrderByDescending(h => h.CreatedAt)
-                .Select(h => new
-                {
-                    id = h.Id,
-                    size = h.Size,
-                    success = h.Success,
-                    matrixData = h.MatrixData,
-                    solution = h.Solution,
-                    errorMessage = h.ErrorMessage,
-                    createdAt = h.CreatedAt
-                })
                 .ToListAsync();
+            
+            // Convert UTC to Kyiv time for export
+            var history = historyData.Select(h => new
+            {
+                id = h.Id,
+                size = h.Size,
+                success = h.Success,
+                matrixData = h.MatrixData,
+                solution = h.Solution,
+                errorMessage = h.ErrorMessage,
+                createdAt = TimeZoneHelper.ToKyivTime(h.CreatedAt)
+            }).ToList();
 
             var json = JsonSerializer.Serialize(history, new JsonSerializerOptions
             {
@@ -391,7 +395,7 @@ public class MatrixController : Controller
             return File(
                 System.Text.Encoding.UTF8.GetBytes(json),
                 "application/json",
-                $"gauss_history_{DateTime.Now:yyyyMMdd_HHmmss}.json"
+                $"gauss_history_{TimeZoneHelper.KyivNow:yyyyMMdd_HHmmss}.json"
             );
         }
         catch (Exception ex)

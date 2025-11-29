@@ -1,4 +1,5 @@
 using webProject.Models;
+using webProject.Helpers;
 
 namespace webProject.Services;
 
@@ -210,7 +211,7 @@ public class GaussianEliminationService : IGaussianEliminationService
                     Success = true,
                     Solution = solution,
                     Size = n,
-                    SolvedAt = DateTime.UtcNow
+                    SolvedAt = TimeZoneHelper.UtcNow
                 };
             }
             catch (OperationCanceledException)

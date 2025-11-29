@@ -3,10 +3,10 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Security.Claims;
 using webProject.Models;
-using Microsoft.AspNetCore.Http;
 using webProject.Services;
 using webProject.Data;
 using Microsoft.EntityFrameworkCore;
+using webProject.Helpers;
 
 namespace webProject.Controllers;
 
@@ -47,7 +47,7 @@ public class AccountController : Controller
         if (user != null && VerifyPassword(model.Password!, user.PasswordHash))
         {
             // Update LastLogin timestamp
-            user.LastLogin = DateTime.UtcNow;
+            user.LastLogin = TimeZoneHelper.UtcNow;
             await _context.SaveChangesAsync();
             
             // Create claims and sign in user using cookie authentication
@@ -132,7 +132,7 @@ public class AccountController : Controller
         {
             Email = model.Email!,
             PasswordHash = HashPassword(model.Password!),
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = TimeZoneHelper.UtcNow
         };
 
         _context.Users.Add(user);

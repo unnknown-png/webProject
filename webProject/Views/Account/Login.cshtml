@@ -3,16 +3,6 @@
     ViewData["Title"] = ViewData["Title"] ?? "Log In";
 }
 
-@section HeadContent {
-    <style>
-        /* Small overrides to integrate with existing site look */
-        .auth-panel { max-width: 540px; margin: 52px auto; padding: 22px; }
-        .auth-panel .site-header { margin-bottom: 20px; }
-        .auth-panel .subtitle { color: var(--muted); }
-        .field-row { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-        .auth-cta { display:flex; gap:8px; align-items:center; }
-    </style>
-}
 
 <div class="wrap auth-panel panel">
     <div class="site-header">
@@ -34,7 +24,12 @@
 
         <div class="field-row">
             <label asp-for="Password"></label>
-            <input asp-for="Password" />
+            <div class="password-wrapper">
+                <input asp-for="Password" id="loginPassword" />
+                <button type="button" class="toggle-password" onclick="togglePassword('loginPassword', this)" aria-label="Show password">
+                    Show
+                </button>
+            </div>
             <span class="hint" asp-validation-for="Password"></span>
         </div>
 

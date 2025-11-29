@@ -3,17 +3,6 @@
     ViewData["Title"] = ViewData["Title"] ?? "Register";
 }
 
-@section HeadContent {
-    <style>
-        /* Small layout refinements for register page */
-        .auth-panel { max-width: 540px; margin: 52px auto; padding: 22px; }
-        .auth-panel .site-header { margin-bottom: 20px; }
-        .auth-panel .subtitle { color: var(--muted); }
-        .field-row { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-        .auth-actions { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:10px; }
-        .auth-actions .left { color: var(--muted); }
-    </style>
-}
 
 <div class="wrap auth-panel panel">
     <div class="site-header">
@@ -30,13 +19,23 @@
 
         <div class="field-row">
             <label asp-for="Password"></label>
-            <input asp-for="Password" />
+            <div class="password-wrapper">
+                <input asp-for="Password" id="registerPassword" />
+                <button type="button" class="toggle-password" onclick="togglePassword('registerPassword', this)" aria-label="Show password">
+                    Show
+                </button>
+            </div>
             <span class="hint" asp-validation-for="Password"></span>
         </div>
 
         <div class="field-row">
             <label asp-for="ConfirmPassword"></label>
-            <input asp-for="ConfirmPassword" />
+            <div class="password-wrapper">
+                <input asp-for="ConfirmPassword" id="confirmPassword" />
+                <button type="button" class="toggle-password" onclick="togglePassword('confirmPassword', this)" aria-label="Show password">
+                    Show
+                </button>
+            </div>
             <span class="hint" asp-validation-for="ConfirmPassword"></span>
         </div>
 
@@ -52,3 +51,4 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
 }
+

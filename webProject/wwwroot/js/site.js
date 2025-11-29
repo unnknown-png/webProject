@@ -174,9 +174,9 @@
             el.className = 'history-item';
             const solution = h.success ? JSON.parse(h.solution) : null;
             
-            // Convert UTC to Kyiv time (UTC+2)
-            const kyivTime = new Date(h.createdAt).toLocaleString('uk-UA', {
-                timeZone: 'Europe/Kiev',
+            // Format time (already in Kyiv timezone from backend)
+            const date = new Date(h.createdAt);
+            const kyivTime = date.toLocaleString('uk-UA', {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
@@ -408,3 +408,20 @@
     loadHistory();
     setProgress(0);
 })();
+
+// ====================
+// PASSWORD TOGGLE (for Login/Register pages)
+// ====================
+function togglePassword(inputId, button) {
+    const input = document.getElementById(inputId);
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        button.textContent = 'Hide';
+        button.setAttribute('aria-label', 'Hide password');
+    } else {
+        input.type = 'password';
+        button.textContent = 'Show';
+        button.setAttribute('aria-label', 'Show password');
+    }
+}

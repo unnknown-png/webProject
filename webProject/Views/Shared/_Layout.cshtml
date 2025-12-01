@@ -1,4 +1,4 @@
-﻿@{
+﻿﻿@{
     var title = ViewData["Title"] as string ?? "Gauss Solver";
     var theme = Context.Request.Cookies["theme"] ?? "dark"; // default to dark
 }
@@ -67,6 +67,7 @@
 <script src="~/js/theme.js" asp-append-version="true"></script>
 <script src="~/js/result-renderer.js" asp-append-version="true"></script>
 <script src="~/js/navigation.js" asp-append-version="true"></script>
+<script src="~/js/task-manager.js" asp-append-version="true"></script>
 <script src="~/js/site.js" asp-append-version="true"></script>
 @RenderSection("Scripts", required: false)
 </body>

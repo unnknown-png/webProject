@@ -1,4 +1,4 @@
-﻿﻿﻿@{
+﻿﻿﻿﻿@{
 	ViewData["Title"] = "Home";
 }
 
@@ -35,26 +35,17 @@
 				<small class="hint">Enter numbers manually or use Random</small>
 			</div>
 
-			<div class="matrix-wrap" id="matrixWrap" aria-live="polite">
-				<!-- matrix will be injected here -->
-			</div>
-
-		<div class="status" aria-hidden="false">
-			<div class="progress-info">
-				<div class="progress-header">
-					<span id="progressText">Idle</span>
-					<button id="cancelBtn" class="btn-cancel" style="display:none;" title="Cancel calculation">Cancel</button>
-				</div>
-				<div id="progressStage" class="progress-stage"></div>
-			</div>
-			<div class="progress" aria-hidden="false">
-				<i id="progressBar"></i>
-				<span id="progressPercent" class="progress-percent">0%</span>
-			</div>
+		<div class="matrix-wrap" id="matrixWrap" aria-live="polite">
+			<!-- matrix will be injected here -->
 		</div>
 
-			<div id="result" class="result" hidden></div>
-		</section>
+		<!-- Multiple tasks status container -->
+		<div id="tasksContainer" class="tasks-container">
+			<!-- Task status bars will be dynamically added here -->
+		</div>
+
+		<div id="result" class="result" hidden></div>
+	</section>
 
 	</main>
 </div>

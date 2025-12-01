@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using webProject.Models;
 
 namespace webProject.Services;
 
@@ -10,11 +9,18 @@ public interface ITaskManager
     CancellationTokenSource? GetCancellationToken(string taskId);
     void CancelTask(string taskId);
     void RemoveTask(string taskId);
+    int GetActiveTaskCount(int userId);
+    bool CanCreateTask(int userId);
+    void AssociateTaskWithUser(string taskId, int userId);
 }
 
 public class TaskManager : ITaskManager
 {
+    private const int MaxConcurrentTasksPerUser = 3;
+    
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _tasks = new();
+    private readonly ConcurrentDictionary<string, int> _taskUserMap = new();
+    private readonly ConcurrentDictionary<int, ConcurrentBag<string>> _userTasks = new();
 
     public string CreateTask()
     {
@@ -49,6 +55,40 @@ public class TaskManager : ITaskManager
         {
             cts.Dispose();
         }
+        
+        // Clean up user association
+        if (_taskUserMap.TryRemove(taskId, out var userId))
+        {
+            if (_userTasks.TryGetValue(userId, out var userTaskList))
+            {
+                // Remove task from user's list
+                var updatedList = new ConcurrentBag<string>(userTaskList.Where(t => t != taskId));
+                _userTasks.TryUpdate(userId, updatedList, userTaskList);
+            }
+        }
+    }
+    
+    public int GetActiveTaskCount(int userId)
+    {
+        if (_userTasks.TryGetValue(userId, out var tasks))
+        {
+            // Only count tasks that still exist in _tasks dictionary
+            return tasks.Count(taskId => _tasks.ContainsKey(taskId));
+        }
+        return 0;
+    }
+    
+    public bool CanCreateTask(int userId)
+    {
+        return GetActiveTaskCount(userId) < MaxConcurrentTasksPerUser;
+    }
+    
+    public void AssociateTaskWithUser(string taskId, int userId)
+    {
+        _taskUserMap.TryAdd(taskId, userId);
+        
+        var userTaskList = _userTasks.GetOrAdd(userId, _ => new ConcurrentBag<string>());
+        userTaskList.Add(taskId);
     }
 }
 

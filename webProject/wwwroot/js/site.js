@@ -7,35 +7,45 @@
     const sizeInput = $('sizeInput');
     const sizeError = $('sizeError');
     const matrixWrap = $('matrixWrap');
-    const progressBar = $('progressBar');
-    const progressText = $('progressText');
-    const progressPercent = $('progressPercent');
-    const progressStage = $('progressStage');
-    const cancelBtn = $('cancelBtn');
+    const tasksContainer = $('tasksContainer');
     const resultEl = $('result');
     const historyEl = $('history');
 
     // Initialize all modules
     ValidationModule.init(sizeError, resultEl);
     
-    SignalRProgressModule.init({
-        progressBar,
-        progressText,
-        progressPercent,
-        progressStage,
-        cancelBtn
-    });
-
     const initialSize = Math.max(parseInt(sizeInput?.value, 10) || 5, 2);
     MatrixModule.init(matrixWrap, initialSize);
     HistoryModule.init(historyEl);
     ThemeModule.init($('themeToggle'));
 
-    // Initialize SignalR
+    // Initialize SignalR and TaskManager
+    let signalRConnection = null;
+    
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => SignalRProgressModule.initSignalR());
+        document.addEventListener('DOMContentLoaded', initializeSignalR);
     } else {
-        SignalRProgressModule.initSignalR();
+        initializeSignalR();
+    }
+    
+    function initializeSignalR() {
+        if (typeof signalR === 'undefined') {
+            console.warn('SignalR not loaded yet, retrying...');
+            setTimeout(initializeSignalR, 100);
+            return;
+        }
+
+        signalRConnection = new signalR.HubConnectionBuilder()
+            .withUrl("/progressHub")
+            .withAutomaticReconnect()
+            .build();
+
+        signalRConnection.start()
+            .then(() => {
+                console.log('SignalR connected');
+                TaskManagerModule.init(tasksContainer, signalRConnection);
+            })
+            .catch(err => console.error("SignalR connection error:", err));
     }
 
     // SIZE INPUT HANDLERS
@@ -45,27 +55,12 @@
             const newSize = ValidationModule.validateSizeInput(inputValue, sizeInput);
             MatrixModule.setSize(newSize);
             MatrixModule.updateMatrixDisplay();
-            SignalRProgressModule.clearProgress();
             resultEl.hidden = true;
         });
 
         sizeInput.addEventListener('input', () => {
             const inputValue = parseInt(sizeInput.value, 10);
             ValidationModule.validateSizeInputRealtime(inputValue);
-        });
-    }
-
-    // CANCEL BUTTON
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', async () => {
-            const cancelled = await SignalRProgressModule.cancelTask();
-            if (cancelled) {
-                ValidationModule.showResult('Calculation was cancelled by user', false);
-                // Reload history to show the cancelled task
-                setTimeout(() => {
-                    HistoryModule.loadHistory();
-                }, 500);
-            }
         });
     }
 
@@ -77,17 +72,42 @@
             return;
         }
         
-        await MatrixModule.generateRandom(
-            (percent, text) => SignalRProgressModule.setProgress(percent, text),
-            (msg, isError) => ValidationModule.showResult(msg, isError)
-        );
+        // Simple progress for generation (not tracked as a task)
+        try {
+            const res = await fetch('/api/matrix/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    size: MatrixModule.getSize(), 
+                    minValue: -200, 
+                    maxValue: 200 
+                })
+            });
+            const data = await res.json();
+            
+            if (!data.success) {
+                ValidationModule.showResult(data.error || 'Failed to generate matrix', true);
+                return;
+            }
+
+            if (MatrixModule.getSize() < 10) {
+                MatrixModule.fillMatrixWithData(data.coefficients, data.rightHandSide);
+            } else {
+                MatrixModule.setMatrixId(data.matrixId);
+                MatrixModule.showSummary(MatrixModule.getSize(), `✓ ${data.message}<br><small>Click "Solve" to compute.</small>`);
+            }
+        } catch (err) {
+            ValidationModule.showResult('Server error', true);
+        }
     });
 
     // CLEAR BUTTON
     $('clear').addEventListener('click', () => {
         MatrixModule.clearMatrix();
         resultEl.hidden = true;
-        SignalRProgressModule.clearProgress();
+        
+        // Clear all active tasks and results
+        TaskManagerModule.clearAll();
     });
 
     // SOLVE BUTTON
@@ -98,64 +118,100 @@
             return;
         }
         
-        const taskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
-        SignalRProgressModule.setCurrentTaskId(taskId);
-        SignalRProgressModule.setProgress(0, 'Starting...', 'Initializing');
-        if (cancelBtn) cancelBtn.disabled = false;
+        // Check if we can create a new task
+        if (!TaskManagerModule.canCreateTask()) {
+            ValidationModule.showResult('Maximum 3 concurrent tasks allowed. Please wait for a task to complete or cancel one.', true);
+            return;
+        }
+        
+        // Create task in TaskManager
+        const taskResult = TaskManagerModule.createTask(MatrixModule.getSize());
+        if (!taskResult.success) {
+            ValidationModule.showResult(taskResult.error, true);
+            return;
+        }
+        
+        const taskId = taskResult.taskId;
         
         try {
-            const result = await MatrixModule.solveMatrix(taskId, SignalRProgressModule, ValidationModule);
+            let requestBody, endpoint;
             
-            if (!result.success) {
-                if (result.needsGeneration) {
-                    alert('Generate matrix first!');
-                } else if (result.error) {
-                    SignalRProgressModule.handleError(result.data, ValidationModule.showResult);
-                } else if (result.exception) {
-                    ValidationModule.showResult('Server error', true);
-                    SignalRProgressModule.setProgress(0);
-                    SignalRProgressModule.setCurrentTaskId(null);
-                    if (cancelBtn) {
-                        cancelBtn.disabled = false;
-                        cancelBtn.style.display = 'none';
-                    }
+            if (MatrixModule.getSize() < 10) {
+                // Small matrix - solve directly
+                const { rows, rhs } = MatrixModule.readMatrix();
+                
+                if (!ValidationModule.validateMatrixValues(rows, rhs)) {
+                    TaskManagerModule.setTaskError(taskId, 'Invalid matrix values');
+                    return;
                 }
+                
+                endpoint = '/api/matrix/solve';
+                requestBody = { 
+                    coefficients: rows, 
+                    rightHandSide: rhs,
+                    taskId: taskId
+                };
+            } else {
+                // Large matrix - solve stored
+                if (!MatrixModule.getMatrixId()) {
+                    TaskManagerModule.removeTask(taskId);
+                    ValidationModule.showResult('Generate matrix first!', true);
+                    return;
+                }
+                
+                endpoint = '/api/matrix/solve-stored';
+                requestBody = { 
+                    matrixId: MatrixModule.getMatrixId(),
+                    taskId: taskId
+                };
+            }
+            
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Task-Id': taskId
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            const data = await res.json();
+            
+            if (!res.ok) {
+                console.error('Server error response:', data);
+                const errorMsg = data.details 
+                    ? `${data.error}: ${data.details}` 
+                    : (data.error || 'Request failed');
+                TaskManagerModule.setTaskError(taskId, errorMsg);
+                ValidationModule.showResult(`Error: ${errorMsg}`, true);
                 return;
             }
             
-            // Finalize with 100% progress
-            const shouldContinue = await SignalRProgressModule.finalizeSuccess();
-            if (!shouldContinue) return;
-            
-            // Show results using ResultRenderer module
-            if (result.isSmall) {
-                const resultHTML = ResultRenderer.renderSmallMatrixResult(result.data);
-                ValidationModule.showResult(resultHTML);
-            } else {
-                if (result.data.success) {
-                    const resultHTML = ResultRenderer.renderLargeMatrixResult(result.data);
+            if (data.success) {
+                // Task completed successfully - progress updates handled by SignalR
+                // Show results
+                if (MatrixModule.getSize() < 10) {
+                    const resultHTML = ResultRenderer.renderSmallMatrixResult(data);
+                    ValidationModule.showResult(resultHTML);
+                } else {
+                    const resultHTML = ResultRenderer.renderLargeMatrixResult(data);
                     ValidationModule.showResult(resultHTML);
                     MatrixModule.clearMatrixId();
                     MatrixModule.showSummary(MatrixModule.getSize(), `Solved! Check history.`);
-                } else {
-                    ValidationModule.showResult(`Error: ${result.data.error}`, true);
                 }
+                
+                // Reload history
+                HistoryModule.loadHistory();
+            } else {
+                const errorMsg = data.error || 'Calculation failed';
+                TaskManagerModule.setTaskError(taskId, errorMsg);
+                ValidationModule.showResult(`Error: ${errorMsg}`, true);
             }
-            
-            SignalRProgressModule.setCurrentTaskId(null);
-            setTimeout(() => SignalRProgressModule.clearProgress(), 2000);
-            
-            HistoryModule.loadHistory();
         } catch (err) {
             console.error('Solve error:', err);
-            ValidationModule.showResult('Server error', true);
-            SignalRProgressModule.setProgress(0);
-            SignalRProgressModule.setCurrentTaskId(null);
-            
-            if (cancelBtn) {
-                cancelBtn.disabled = false;
-                cancelBtn.style.display = 'none';
-            }
+            const errorMsg = err.message || 'Server error';
+            TaskManagerModule.setTaskError(taskId, errorMsg);
+            ValidationModule.showResult(`Error: ${errorMsg}`, true);
         }
     });
 
@@ -173,6 +229,5 @@
     const size = MatrixModule.getSize();
     size < 10 ? MatrixModule.buildMatrix(size) : MatrixModule.showSummary(size);
     HistoryModule.loadHistory();
-    SignalRProgressModule.setProgress(0);
 })();
 

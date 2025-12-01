@@ -54,8 +54,25 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
+        // Get user ID (declared at method level for catch block access)
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out int userId))
+        {
+            return Unauthorized(new { success = false, error = "User not authenticated" });
+        }
+
         try
         {
+            // Check if user can create new task (max 3 concurrent)
+            if (!_taskManager.CanCreateTask(userId))
+            {
+                return BadRequest(new 
+                { 
+                    success = false, 
+                    error = "Maximum concurrent tasks limit reached (3). Please wait for a task to complete or cancel one." 
+                });
+            }
+            
             var size = request.Coefficients.Length;
             
             // Validate matrix size
@@ -93,6 +110,9 @@ public class MatrixController : Controller
                 ? _taskManager.CreateTask(request.TaskId)
                 : _taskManager.CreateTask();
             
+            // Associate task with user
+            _taskManager.AssociateTaskWithUser(taskId, userId);
+            
             var cts = _taskManager.GetCancellationToken(taskId);
 
             // Create progress reporter
@@ -118,24 +138,20 @@ public class MatrixController : Controller
             // Cleanup task
             _taskManager.RemoveTask(taskId);
 
-            // Save to history if user is authenticated
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (int.TryParse(userIdClaim, out int userId))
+            // Save to history (userId already parsed at the beginning)
+            var history = new CalculationHistory
             {
-                var history = new CalculationHistory
-                {
-                    UserId = userId,
-                    Size = request.Coefficients.Length,
-                    MatrixData = JsonSerializer.Serialize(request),
-                    Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
-                    Success = result.Success,
-                    ErrorMessage = result.ErrorMessage,
-                    CreatedAt = TimeZoneHelper.UtcNow
-                };
+                UserId = userId,
+                Size = request.Coefficients.Length,
+                MatrixData = JsonSerializer.Serialize(request),
+                Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
+                Success = result.Success,
+                ErrorMessage = result.ErrorMessage,
+                CreatedAt = TimeZoneHelper.UtcNow
+            };
 
-                _context.CalculationHistories.Add(history);
-                await _context.SaveChangesAsync();
-            }
+            _context.CalculationHistories.Add(history);
+            await _context.SaveChangesAsync();
 
             // Check for invalid numbers (Infinity, NaN)
             double? determinant = null;
@@ -169,24 +185,20 @@ public class MatrixController : Controller
         {
             _logger.LogWarning("Matrix calculation was cancelled by user");
             
-            // Save cancellation to history
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (int.TryParse(userIdClaim, out int userId))
+            // Save cancellation to history (userId already parsed at the beginning)
+            var history = new CalculationHistory
             {
-                var history = new CalculationHistory
-                {
-                    UserId = userId,
-                    Size = request.Coefficients.Length,
-                    MatrixData = JsonSerializer.Serialize(request),
-                    Solution = "[]",
-                    Success = false,
-                    ErrorMessage = "Calculation was cancelled by user",
-                    CreatedAt = TimeZoneHelper.UtcNow
-                };
+                UserId = userId,
+                Size = request.Coefficients.Length,
+                MatrixData = JsonSerializer.Serialize(request),
+                Solution = "[]",
+                Success = false,
+                ErrorMessage = "Calculation was cancelled by user",
+                CreatedAt = TimeZoneHelper.UtcNow
+            };
 
-                _context.CalculationHistories.Add(history);
-                await _context.SaveChangesAsync();
-            }
+            _context.CalculationHistories.Add(history);
+            await _context.SaveChangesAsync();
             
             return StatusCode(408, new 
             { 
@@ -196,8 +208,36 @@ public class MatrixController : Controller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error solving matrix");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
+            _logger.LogError(ex, "Error solving matrix. Size: {Size}", request.Coefficients?.Length ?? 0);
+            
+            // Try to save error to history
+            try
+            {
+                var history = new CalculationHistory
+                {
+                    UserId = userId,
+                    Size = request.Coefficients?.Length ?? 0,
+                    MatrixData = JsonSerializer.Serialize(new { size = request.Coefficients?.Length ?? 0 }),
+                    Solution = "[]",
+                    Success = false,
+                    ErrorMessage = $"Error: {ex.Message}",
+                    CreatedAt = TimeZoneHelper.UtcNow
+                };
+
+                _context.CalculationHistories.Add(history);
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception historyEx)
+            {
+                _logger.LogError(historyEx, "Failed to save error to history");
+            }
+            
+            return StatusCode(500, new 
+            { 
+                success = false, 
+                error = "Internal server error",
+                details = ex.Message
+            });
         }
     }
 
@@ -272,10 +312,27 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
+        // Get user ID (declared at method level for catch block access)
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out int userId))
+        {
+            return Unauthorized(new { success = false, error = "User not authenticated" });
+        }
+
         string? taskId = null;
 
         try
         {
+            // Check if user can create new task (max 3 concurrent)
+            if (!_taskManager.CanCreateTask(userId))
+            {
+                return BadRequest(new 
+                { 
+                    success = false, 
+                    error = "Maximum concurrent tasks limit reached (3). Please wait for a task to complete or cancel one." 
+                });
+            }
+            
             var cacheKey = $"matrix_{request.MatrixId}";
             
             if (!_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var matrix) || matrix == null)
@@ -289,6 +346,9 @@ public class MatrixController : Controller
             taskId = !string.IsNullOrEmpty(request.TaskId) 
                 ? _taskManager.CreateTask(request.TaskId)
                 : _taskManager.CreateTask();
+            
+            // Associate task with user
+            _taskManager.AssociateTaskWithUser(taskId, userId);
             
             var cts = _taskManager.GetCancellationToken(taskId);
 
@@ -318,24 +378,20 @@ public class MatrixController : Controller
             // Remove from cache after solving
             _cache.Remove(cacheKey);
             
-            // Save to history
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (int.TryParse(userIdClaim, out int userId))
+            // Save to history (userId already parsed above)
+            var history = new CalculationHistory
             {
-                var history = new CalculationHistory
-                {
-                    UserId = userId,
-                    Size = matrix.Size,
-                    MatrixData = JsonSerializer.Serialize(new { size = matrix.Size, matrixId = request.MatrixId }),
-                    Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
-                    Success = result.Success,
-                    ErrorMessage = result.ErrorMessage,
-                    CreatedAt = TimeZoneHelper.UtcNow
-                };
+                UserId = userId,
+                Size = matrix.Size,
+                MatrixData = JsonSerializer.Serialize(new { size = matrix.Size, matrixId = request.MatrixId }),
+                Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
+                Success = result.Success,
+                ErrorMessage = result.ErrorMessage,
+                CreatedAt = TimeZoneHelper.UtcNow
+            };
 
-                _context.CalculationHistories.Add(history);
-                await _context.SaveChangesAsync();
-            }
+            _context.CalculationHistories.Add(history);
+            await _context.SaveChangesAsync();
 
             // Prepare response - don't send large arrays for big matrices
             // Also check for invalid numbers (Infinity, NaN)
@@ -411,32 +467,28 @@ public class MatrixController : Controller
             
             _logger.LogWarning("Stored matrix calculation was cancelled by user");
             
-            // Save cancellation to history
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (int.TryParse(userIdClaim, out int userId))
+            // Save cancellation to history (userId already parsed at the beginning)
+            // Try to get matrix from cache to know the size
+            var cacheKey = $"matrix_{request.MatrixId}";
+            int matrixSize = 0;
+            if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
             {
-                // Try to get matrix from cache to know the size
-                var cacheKey = $"matrix_{request.MatrixId}";
-                int matrixSize = 0;
-                if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
-                {
-                    matrixSize = cachedMatrix?.Size ?? 0;
-                }
-                
-                var history = new CalculationHistory
-                {
-                    UserId = userId,
-                    Size = matrixSize > 0 ? matrixSize : 0,
-                    MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
-                    Solution = "[]",
-                    Success = false,
-                    ErrorMessage = "Calculation was cancelled by user",
-                    CreatedAt = TimeZoneHelper.UtcNow
-                };
-
-                _context.CalculationHistories.Add(history);
-                await _context.SaveChangesAsync();
+                matrixSize = cachedMatrix?.Size ?? 0;
             }
+            
+            var history = new CalculationHistory
+            {
+                UserId = userId,
+                Size = matrixSize > 0 ? matrixSize : 0,
+                MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
+                Solution = "[]",
+                Success = false,
+                ErrorMessage = "Calculation was cancelled by user",
+                CreatedAt = TimeZoneHelper.UtcNow
+            };
+
+            _context.CalculationHistories.Add(history);
+            await _context.SaveChangesAsync();
             
             return StatusCode(408, new 
             { 
@@ -447,8 +499,50 @@ public class MatrixController : Controller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error solving stored matrix");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
+            if (taskId != null)
+            {
+                _taskManager.RemoveTask(taskId);
+            }
+            
+            _logger.LogError(ex, "Error solving stored matrix. TaskId: {TaskId}, MatrixId: {MatrixId}", 
+                taskId, request.MatrixId);
+            
+            // Try to save error to history
+            try
+            {
+                var cacheKey = $"matrix_{request.MatrixId}";
+                int matrixSize = 0;
+                if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
+                {
+                    matrixSize = cachedMatrix?.Size ?? 0;
+                }
+                
+                var history = new CalculationHistory
+                {
+                    UserId = userId,
+                    Size = matrixSize,
+                    MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
+                    Solution = "[]",
+                    Success = false,
+                    ErrorMessage = $"Error: {ex.Message}",
+                    CreatedAt = TimeZoneHelper.UtcNow
+                };
+
+                _context.CalculationHistories.Add(history);
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception historyEx)
+            {
+                _logger.LogError(historyEx, "Failed to save error to history");
+            }
+            
+            return StatusCode(500, new 
+            { 
+                success = false, 
+                error = "Internal server error", 
+                details = ex.Message,
+                taskId 
+            });
         }
     }
 

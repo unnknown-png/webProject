@@ -1,9 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using webProject.Models;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 
 namespace webProject.Data
 {
-    public class ApplicationDbContext : DbContext
+    public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
             : base(options)
@@ -12,6 +13,7 @@ namespace webProject.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<CalculationHistory> CalculationHistories { get; set; }
+        public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

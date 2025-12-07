@@ -6,8 +6,19 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using webProject.Services;
 using webProject.Data;
+using webProject.Middleware;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure forwarded headers for nginx proxy
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Add services to the container.
 builder.Services.AddControllersWithViews()
@@ -24,6 +35,12 @@ builder.Services.AddMemoryCache();
 // Add this before var app = builder.Build();
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Configure Data Protection to use PostgreSQL for key storage
+// This ensures both servers can decrypt cookies created by either server
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<ApplicationDbContext>()
+    .SetApplicationName("GaussSolver"); // Same name for all instances
 
 // Register services
 builder.Services.AddScoped<IGaussianEliminationService, GaussianEliminationService>();
@@ -46,8 +63,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.AccessDeniedPath = "/Account/Login";
         options.Cookie.Name = "GaussAuth";
         options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Force HTTPS only
-        options.Cookie.SameSite = SameSiteMode.Strict; // CSRF protection
+        options.Cookie.SecurePolicy = CookieSecurePolicy.None; // Allow HTTP for load balancing
+        options.Cookie.SameSite = SameSiteMode.Lax; // Less strict for load balancing
+        options.Cookie.Path = "/"; // Ensure cookie is valid for all paths
         
         // Remember Me settings
         options.ExpireTimeSpan = TimeSpan.FromDays(30); // Cookie lives 30 days
@@ -57,6 +75,19 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 
 var app = builder.Build();
+
+// Use forwarded headers from nginx proxy (must be first)
+app.UseForwardedHeaders();
+
+// Display server info on startup
+var serverName = app.Configuration["ServerInfo:ServerName"] ?? "UNKNOWN";
+var serverPort = app.Configuration["ServerInfo:Port"] ?? "UNKNOWN";
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("╔════════════════════════════════════════════╗");
+Console.WriteLine($"║  Server: {serverName,-30} ║");
+Console.WriteLine($"║  Port:   {serverPort,-30} ║");
+Console.WriteLine("╚════════════════════════════════════════════╝");
+Console.ResetColor();
 
 if (app.Environment.IsDevelopment())
 {
@@ -68,7 +99,11 @@ else
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// Remove HTTPS redirection for load balancing
+// app.UseHttpsRedirection();
+
+// Add server logging middleware early in the pipeline
+app.UseServerLogging();
 
 // Redirect accidental requests to the old static index path (e.g. "/src/WebApp/wwwroot/index.html")
 // to the MVC root so users/IDE bookmarks don't hit a missing static file.
@@ -91,28 +126,9 @@ app.UseRouting();
 // Add authentication middleware before authorization
 app.UseAuthentication();
 
-// Middleware: ensure users who logged in without RememberMe are signed out after application restart
-app.Use(async (context, next) =>
-{
-    var runProvider = context.RequestServices.GetService<IRunIdProvider>();
-    if (runProvider != null && context.User?.Identity?.IsAuthenticated == true)
-    {
-        var claim = context.User.FindFirst("RunId");
-        
-        // If user has RunId claim (meaning RememberMe was false), check if it matches
-        // If no RunId claim exists, user selected RememberMe and should stay logged in
-        if (claim != null && claim.Value != runProvider.RunId)
-        {
-            // Sign out the user if their RunId doesn't match current run id
-            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            context.Response.Redirect("/Account/Login");
-            return;
-        }
-        // If claim is null, user has RememberMe = true, let them through
-    }
-
-    await next();
-});
+// Disabled RunId middleware for load balancing
+// This middleware was causing issues with distributed authentication
+// app.Use(async (context, next) => { ... });
 
 app.UseAuthorization();
 

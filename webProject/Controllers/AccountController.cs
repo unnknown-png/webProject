@@ -58,11 +58,8 @@ public class AccountController : Controller
                 new Claim(ClaimTypes.Email, user.Email)
             };
 
-            // If user did not select RememberMe, add RunId claim to force logout after app restart
-            if (!model.RememberMe)
-            {
-                claims.Add(new Claim("RunId", _runIdProvider.RunId));
-            }
+            // RunId claim removed for load balancing compatibility
+            // Both servers with shared Data Protection keys can now authenticate users
 
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
@@ -146,8 +143,7 @@ public class AccountController : Controller
             new Claim(ClaimTypes.Email, user.Email)
         };
 
-        // On registration assume non-persistent session (user didn't explicitly choose RememberMe)
-        claims.Add(new Claim("RunId", _runIdProvider.RunId));
+        // RunId claim removed for load balancing compatibility
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);

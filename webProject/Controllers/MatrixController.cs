@@ -24,6 +24,8 @@ public class MatrixController : Controller
     private readonly IMemoryCache _cache;
     private readonly IHubContext<ProgressHub> _hubContext;
     private readonly ITaskManager _taskManager;
+    private readonly IConfiguration _configuration;
+    private readonly string _serverName;
 
 
     public MatrixController(
@@ -33,7 +35,8 @@ public class MatrixController : Controller
         ILogger<MatrixController> logger,
         IMemoryCache cache,
         IHubContext<ProgressHub> hubContext,
-        ITaskManager taskManager)
+        ITaskManager taskManager,
+        IConfiguration configuration)
     {
         _gaussService = gaussService;
         _combinedService = combinedService;
@@ -42,6 +45,8 @@ public class MatrixController : Controller
         _cache = cache;
         _hubContext = hubContext;
         _taskManager = taskManager;
+        _configuration = configuration;
+        _serverName = _configuration["ServerInfo:ServerName"] ?? "UNKNOWN-SERVER";
     }
 
     // API: Solve matrix system (for small matrices < 10)
@@ -74,6 +79,11 @@ public class MatrixController : Controller
             }
             
             var size = request.Coefficients.Length;
+            
+            // Log matrix solving request
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[{_serverName}] Received matrix solve request - Size: {size}x{size}");
+            Console.ResetColor();
             
             // Validate matrix size
             if (size < MatrixConstants.MinMatrixSize || size > MatrixConstants.MaxMatrixSize)
@@ -137,6 +147,10 @@ public class MatrixController : Controller
             
             // Cleanup task
             _taskManager.RemoveTask(taskId);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[{_serverName}] Successfully solved matrix {size}x{size} - Time: {result.ComputationTimeSeconds:F3}s");
+            Console.ResetColor();
 
             // Save to history (userId already parsed at the beginning)
             var history = new CalculationHistory
@@ -263,6 +277,10 @@ public class MatrixController : Controller
 
         try
         {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[{_serverName}] Generating random matrix - Size: {request.Size}x{request.Size}");
+            Console.ResetColor();
+            
             var matrix = _gaussService.GenerateRandomMatrix(request.Size, request.MinValue, request.MaxValue);
             
             // For large matrices (>= 10), store in cache and return matrixId
@@ -273,6 +291,10 @@ public class MatrixController : Controller
                 
                 // Store for 30 minutes
                 _cache.Set(cacheKey, matrix, TimeSpan.FromMinutes(MatrixConstants.MatrixCacheExpirationMinutes));
+                
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[{_serverName}] Matrix {request.Size}x{request.Size} generated and cached with ID: {matrixId}");
+                Console.ResetColor();
                 
                 _logger.LogInformation($"Generated and cached matrix {request.Size}x{request.Size} with ID: {matrixId}");
                 
@@ -285,6 +307,10 @@ public class MatrixController : Controller
                 });
             }
             
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[{_serverName}] Small matrix {request.Size}x{request.Size} generated");
+            Console.ResetColor();
+            
             // For small matrices, return data directly
             return Ok(new
             {
@@ -296,8 +322,13 @@ public class MatrixController : Controller
         }
         catch (Exception ex)
         {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[{_serverName}] ERROR generating matrix: {ex.Message}");
+            Console.WriteLine($"[{_serverName}] Stack trace: {ex.StackTrace}");
+            Console.ResetColor();
+            
             _logger.LogError(ex, "Error generating matrix");
-            return StatusCode(500, new { success = false, error = "Internal server error" });
+            return StatusCode(500, new { success = false, error = "Internal server error", details = ex.Message });
         }
     }
 
@@ -340,6 +371,10 @@ public class MatrixController : Controller
                 return NotFound(new { success = false, error = "Matrix not found or expired. Please generate a new one." });
             }
 
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[{_serverName}] Solving cached matrix - Size: {matrix.Size}x{matrix.Size}");
+            Console.ResetColor();
+
             _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size} with LU decomposition");
             
             // Create task ID for tracking (use client-provided taskId or generate new one)
@@ -374,6 +409,10 @@ public class MatrixController : Controller
             
             // Cleanup task
             _taskManager.RemoveTask(taskId);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[{_serverName}] Successfully solved matrix {matrix.Size}x{matrix.Size} - Time: {result.ComputationTimeSeconds:F3}s");
+            Console.ResetColor();
 
             // Remove from cache after solving
             _cache.Remove(cacheKey);

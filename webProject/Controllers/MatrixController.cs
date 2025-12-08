@@ -26,6 +26,7 @@ public class MatrixController : Controller
     private readonly ITaskManager _taskManager;
     private readonly IConfiguration _configuration;
     private readonly string _serverName;
+    private readonly IRedisQueueService _queueService;
 
 
     public MatrixController(
@@ -36,7 +37,8 @@ public class MatrixController : Controller
         IMemoryCache cache,
         IHubContext<ProgressHub> hubContext,
         ITaskManager taskManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IRedisQueueService queueService)
     {
         _gaussService = gaussService;
         _combinedService = combinedService;
@@ -47,6 +49,7 @@ public class MatrixController : Controller
         _taskManager = taskManager;
         _configuration = configuration;
         _serverName = _configuration["ServerInfo:ServerName"] ?? "UNKNOWN-SERVER";
+        _queueService = queueService;
     }
 
     // API: Solve matrix system (for small matrices < 10)
@@ -258,7 +261,7 @@ public class MatrixController : Controller
     // API: Generate random matrix
     [HttpPost]
     [Route("api/matrix/generate")]
-    public IActionResult Generate([FromBody] MatrixGenerateRequest request)
+    public async Task<IActionResult> Generate([FromBody] MatrixGenerateRequest request)
     {
         if (!ModelState.IsValid)
         {
@@ -278,7 +281,8 @@ public class MatrixController : Controller
         try
         {
             Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"[{_serverName}] Generating random matrix - Size: {request.Size}x{request.Size}");
+            Console.WriteLine($"[{_serverName}] MATRIX GENERATION REQUEST");
+            Console.WriteLine($"[{_serverName}] Size: {request.Size}x{request.Size}");
             Console.ResetColor();
             
             var matrix = _gaussService.GenerateRandomMatrix(request.Size, request.MinValue, request.MaxValue);
@@ -287,13 +291,15 @@ public class MatrixController : Controller
             if (request.Size >= MatrixConstants.SmallMatrixThreshold)
             {
                 var matrixId = Guid.NewGuid().ToString();
-                var cacheKey = $"matrix_{matrixId}";
                 
-                // Store for 30 minutes
-                _cache.Set(cacheKey, matrix, TimeSpan.FromMinutes(MatrixConstants.MatrixCacheExpirationMinutes));
+                // Store in Redis cache (shared across all servers)
+                await _queueService.StoreMatrixAsync(matrixId, matrix, TimeSpan.FromMinutes(MatrixConstants.MatrixCacheExpirationMinutes));
                 
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[{_serverName}] Matrix {request.Size}x{request.Size} generated and cached with ID: {matrixId}");
+                Console.WriteLine($"[{_serverName}] MATRIX GENERATED SUCCESSFULLY");
+                Console.WriteLine($"[{_serverName}] Matrix ID: {matrixId}");
+                Console.WriteLine($"[{_serverName}] Cached in Redis for 30 minutes");
+                Console.WriteLine($"");
                 Console.ResetColor();
                 
                 _logger.LogInformation($"Generated and cached matrix {request.Size}x{request.Size} with ID: {matrixId}");
@@ -308,7 +314,9 @@ public class MatrixController : Controller
             }
             
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[{_serverName}] Small matrix {request.Size}x{request.Size} generated");
+            Console.WriteLine($"[{_serverName}] SMALL MATRIX GENERATED");
+            Console.WriteLine($"[{_serverName}] Size: {request.Size}x{request.Size} (direct return)");
+            Console.WriteLine($"");
             Console.ResetColor();
             
             // For small matrices, return data directly
@@ -323,8 +331,11 @@ public class MatrixController : Controller
         catch (Exception ex)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[{_serverName}] ERROR generating matrix: {ex.Message}");
-            Console.WriteLine($"[{_serverName}] Stack trace: {ex.StackTrace}");
+            Console.WriteLine($"[{_serverName}] ========================================");
+            Console.WriteLine($"[{_serverName}] ERROR IN MATRIX GENERATION");
+            Console.WriteLine($"[{_serverName}] Message: {ex.Message}");
+            Console.WriteLine($"[{_serverName}] ========================================");
+            Console.WriteLine($"");
             Console.ResetColor();
             
             _logger.LogError(ex, "Error generating matrix");
@@ -350,8 +361,6 @@ public class MatrixController : Controller
             return Unauthorized(new { success = false, error = "User not authenticated" });
         }
 
-        string? taskId = null;
-
         try
         {
             // Check if user can create new task (max 3 concurrent)
@@ -364,223 +373,76 @@ public class MatrixController : Controller
                 });
             }
             
-            var cacheKey = $"matrix_{request.MatrixId}";
+            // Get matrix from Redis cache (shared across all servers)
+            var matrix = await _queueService.GetMatrixAsync(request.MatrixId);
             
-            if (!_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var matrix) || matrix == null)
+            if (matrix == null)
             {
                 return NotFound(new { success = false, error = "Matrix not found or expired. Please generate a new one." });
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[{_serverName}] Solving cached matrix - Size: {matrix.Size}x{matrix.Size}");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[{_serverName}] ----------------------------------------");
+            Console.WriteLine($"[{_serverName}] ENQUEUE TASK REQUEST");
+            Console.WriteLine($"[{_serverName}] Matrix ID  : {request.MatrixId}");
+            Console.WriteLine($"[{_serverName}] Matrix Size: {matrix.Size}x{matrix.Size}");
+            Console.WriteLine($"[{_serverName}] User ID    : {userId}");
+            Console.WriteLine($"[{_serverName}] ----------------------------------------");
             Console.ResetColor();
 
-            _logger.LogInformation($"Solving cached matrix {matrix.Size}x{matrix.Size} with LU decomposition");
+            _logger.LogInformation($"Enqueuing matrix {matrix.Size}x{matrix.Size} to Redis queue for user {userId}");
             
-            // Create task ID for tracking (use client-provided taskId or generate new one)
-            taskId = !string.IsNullOrEmpty(request.TaskId) 
-                ? _taskManager.CreateTask(request.TaskId)
-                : _taskManager.CreateTask();
-            
-            // Associate task with user
-            _taskManager.AssociateTaskWithUser(taskId, userId);
-            
-            var cts = _taskManager.GetCancellationToken(taskId);
-
-            // Create progress reporter
-            var progress = new Progress<ProgressInfo>(async info =>
+            // Create MatrixTask for Redis queue
+            var matrixTask = new MatrixTask
             {
-                try
-                {
-                    await _hubContext.Clients.All.SendAsync("ReceiveProgress", taskId, info.Percent, info.Stage, info.Message);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error sending progress update for stored matrix");
-                }
-            });
-
-            // Use combined service to solve and decompose simultaneously
-            var result = await _combinedService.SolveAndDecomposeAsync(
-                matrix.Coefficients, 
-                matrix.RightHandSide,
-                progress,
-                cts?.Token ?? default);
-            
-            // Cleanup task
-            _taskManager.RemoveTask(taskId);
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[{_serverName}] Successfully solved matrix {matrix.Size}x{matrix.Size} - Time: {result.ComputationTimeSeconds:F3}s");
-            Console.ResetColor();
-
-            // Remove from cache after solving
-            _cache.Remove(cacheKey);
-            
-            // Save to history (userId already parsed above)
-            var history = new CalculationHistory
-            {
+                MatrixId = request.MatrixId,
                 UserId = userId,
                 Size = matrix.Size,
-                MatrixData = JsonSerializer.Serialize(new { size = matrix.Size, matrixId = request.MatrixId }),
-                Solution = JsonSerializer.Serialize(result.GaussianSolution.Solution),
-                Success = result.Success,
-                ErrorMessage = result.ErrorMessage,
-                CreatedAt = TimeZoneHelper.UtcNow
+                Method = "LU",
+                Status = Models.TaskStatus.Queued
             };
+            
+            // Enqueue task to Redis - workers will pick it up
+            var taskId = await _queueService.EnqueueTaskAsync(matrixTask);
+            
+            // Associate task with user in TaskManager for tracking
+            _taskManager.AssociateTaskWithUser(taskId, userId);
+            
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[{_serverName}] TASK ENQUEUED SUCCESSFULLY");
+            Console.WriteLine($"[{_serverName}] Task ID: {taskId}");
+            Console.WriteLine($"[{_serverName}] Status : Queued for worker processing");
+            Console.WriteLine($"");
+            Console.ResetColor();
 
-            _context.CalculationHistories.Add(history);
-            await _context.SaveChangesAsync();
+            // Notify user via SignalR
+            await _hubContext.Clients.User(userId.ToString())
+                .SendAsync("TaskQueued", new { 
+                    taskId,
+                    status = "Queued",
+                    size = matrix.Size,
+                    message = $"Matrix {matrix.Size}×{matrix.Size} added to processing queue"
+                });
 
-            // Prepare response - don't send large arrays for big matrices
-            // Also check for invalid numbers (Infinity, NaN)
-            double? determinant = null;
-            if (result.LUDecomposition.Success)
+            // Return immediately - workers will process asynchronously
+            return Ok(new
             {
-                var det = result.LUDecomposition.Determinant;
-                if (!double.IsNaN(det) && !double.IsInfinity(det))
-                {
-                    determinant = det;
-                }
-                else
-                {
-                    _logger.LogWarning($"Invalid determinant value for matrix {matrix.Size}x{matrix.Size}: {det} - this is normal for large matrices");
-                }
-            }
-            
-            // Check if solution contains invalid values
-            bool solutionValid = result.GaussianSolution.Solution.All(v => !double.IsNaN(v) && !double.IsInfinity(v));
-            
-            object response;
-            
-            if (matrix.Size < MatrixConstants.SmallMatrixThreshold)
-            {
-                // For small matrices, send everything including LU matrices
-                response = new
-                {
-                    success = result.Success,
-                    size = result.Size,
-                    solution = result.GaussianSolution.Solution,
-                    determinant = determinant,
-                    luDecomposition = result.LUDecomposition.Success ? new
-                    {
-                        lMatrix = result.LUDecomposition.LMatrix,
-                        uMatrix = result.LUDecomposition.UMatrix
-                    } : null,
-                    error = result.ErrorMessage,
-                    solvedAt = result.SolvedAt,
-                    computationTime = result.ComputationTimeSeconds,
-                    taskId
-                };
-            }
-            else
-            {
-                // For large matrices, send only summary to avoid JSON overflow
-                var summaryMessage = result.GaussianSolution.Success && solutionValid
-                    ? $"Solution computed successfully. First 5 values: [{string.Join(", ", result.GaussianSolution.Solution.Take(5).Select(v => v.ToString("F4")))}...]"
-                    : "Solution computed (contains special values)";
-                
-                response = new
-                {
-                    success = result.Success,
-                    size = result.Size,
-                    solutionSummary = summaryMessage,
-                    solutionLength = result.GaussianSolution.Solution?.Length ?? 0,
-                    determinant = determinant,
-                    luNote = $"LU decomposition matrices are not displayed for large matrices (size >= {MatrixConstants.SmallMatrixThreshold}) to avoid performance issues",
-                    error = result.ErrorMessage,
-                    solvedAt = result.SolvedAt,
-                    computationTime = result.ComputationTimeSeconds,
-                    taskId
-                };
-            }
-
-            return Ok(response);
-        }
-        catch (OperationCanceledException)
-        {
-            if (taskId != null)
-            {
-                _taskManager.RemoveTask(taskId);
-            }
-            
-            _logger.LogWarning("Stored matrix calculation was cancelled by user");
-            
-            // Save cancellation to history (userId already parsed at the beginning)
-            // Try to get matrix from cache to know the size
-            var cacheKey = $"matrix_{request.MatrixId}";
-            int matrixSize = 0;
-            if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
-            {
-                matrixSize = cachedMatrix?.Size ?? 0;
-            }
-            
-            var history = new CalculationHistory
-            {
-                UserId = userId,
-                Size = matrixSize > 0 ? matrixSize : 0,
-                MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
-                Solution = "[]",
-                Success = false,
-                ErrorMessage = "Calculation was cancelled by user",
-                CreatedAt = TimeZoneHelper.UtcNow
-            };
-
-            _context.CalculationHistories.Add(history);
-            await _context.SaveChangesAsync();
-            
-            return StatusCode(408, new 
-            { 
-                success = false, 
-                error = "Calculation was cancelled by user",
-                taskId
+                success = true,
+                taskId,
+                size = matrix.Size,
+                status = "queued",
+                message = $"Matrix {matrix.Size}×{matrix.Size} added to queue. You will be notified when complete."
             });
         }
         catch (Exception ex)
         {
-            if (taskId != null)
-            {
-                _taskManager.RemoveTask(taskId);
-            }
-            
-            _logger.LogError(ex, "Error solving stored matrix. TaskId: {TaskId}, MatrixId: {MatrixId}", 
-                taskId, request.MatrixId);
-            
-            // Try to save error to history
-            try
-            {
-                var cacheKey = $"matrix_{request.MatrixId}";
-                int matrixSize = 0;
-                if (_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var cachedMatrix))
-                {
-                    matrixSize = cachedMatrix?.Size ?? 0;
-                }
-                
-                var history = new CalculationHistory
-                {
-                    UserId = userId,
-                    Size = matrixSize,
-                    MatrixData = JsonSerializer.Serialize(new { matrixId = request.MatrixId, size = matrixSize }),
-                    Solution = "[]",
-                    Success = false,
-                    ErrorMessage = $"Error: {ex.Message}",
-                    CreatedAt = TimeZoneHelper.UtcNow
-                };
-
-                _context.CalculationHistories.Add(history);
-                await _context.SaveChangesAsync();
-            }
-            catch (Exception historyEx)
-            {
-                _logger.LogError(historyEx, "Failed to save error to history");
-            }
+            _logger.LogError(ex, "Error enqueuing stored matrix. MatrixId: {MatrixId}", request.MatrixId);
             
             return StatusCode(500, new 
             { 
                 success = false, 
                 error = "Internal server error", 
-                details = ex.Message,
-                taskId 
+                details = ex.Message
             });
         }
     }
@@ -636,6 +498,151 @@ public class MatrixController : Controller
         }
 
         return true;
+    }
+    
+    // API: Queue matrix for async processing (NEW - uses Redis Queue + Background Workers)
+    [HttpPost]
+    [Route("api/matrix/queue-solve")]
+    public async Task<IActionResult> QueueSolveMatrix([FromBody] StoredMatrixRequest request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new { success = false, error = "Invalid request data" });
+        }
+
+        // Get user ID
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out int userId))
+        {
+            return Unauthorized(new { success = false, error = "User not authenticated" });
+        }
+
+        try
+        {
+            var cacheKey = $"matrix_{request.MatrixId}";
+            
+            if (!_cache.TryGetValue<GeneratedMatrix>(cacheKey, out var matrix) || matrix == null)
+            {
+                return NotFound(new { success = false, error = "Matrix not found or expired. Please generate a new one." });
+            }
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[{_serverName}] Queueing matrix task - Size: {matrix.Size}x{matrix.Size}, User: {userId}");
+            Console.ResetColor();
+
+            // Create task for Redis queue
+            var task = new MatrixTask
+            {
+                UserId = userId,
+                MatrixId = request.MatrixId,
+                Size = matrix.Size,
+                Method = "LU", // Default to LU decomposition
+                Status = Models.TaskStatus.Queued
+            };
+
+            // Enqueue task
+            var taskId = await _queueService.EnqueueTaskAsync(task);
+
+            _logger.LogInformation($"Matrix task {taskId} queued for user {userId} - Size: {matrix.Size}x{matrix.Size}");
+
+            // Notify user via SignalR that task is queued
+            await _hubContext.Clients.User(userId.ToString())
+                .SendAsync("TaskQueued", new { 
+                    taskId = taskId,
+                    status = "Queued",
+                    size = matrix.Size,
+                    message = $"Matrix {matrix.Size}x{matrix.Size} added to processing queue"
+                });
+
+            return Ok(new
+            {
+                success = true,
+                taskId = taskId,
+                message = "Matrix task queued successfully",
+                status = "Queued",
+                size = matrix.Size
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error queueing matrix task");
+            return StatusCode(500, new { success = false, error = "Internal server error", details = ex.Message });
+        }
+    }
+    
+    // API: Get task status from Redis
+    [HttpGet]
+    [Route("api/matrix/task-status/{taskId}")]
+    public async Task<IActionResult> GetTaskStatus(string taskId)
+    {
+        try
+        {
+            var task = await _queueService.GetTaskStatusAsync(taskId);
+            
+            if (task == null)
+            {
+                return NotFound(new { success = false, error = "Task not found" });
+            }
+            
+            return Ok(new
+            {
+                success = true,
+                taskId = task.TaskId,
+                status = task.Status.ToString(),
+                size = task.Size,
+                method = task.Method,
+                createdAt = task.CreatedAt,
+                startedAt = task.StartedAt,
+                completedAt = task.CompletedAt,
+                executionTime = task.ExecutionTime,
+                errorMessage = task.ErrorMessage,
+                result = task.ResultJson
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting task status");
+            return StatusCode(500, new { success = false, error = "Internal server error" });
+        }
+    }
+    
+    // API: Get all user tasks from Redis
+    [HttpGet]
+    [Route("api/matrix/my-tasks")]
+    public async Task<IActionResult> GetMyTasks()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out int userId))
+        {
+            return Unauthorized(new { success = false, error = "User not authenticated" });
+        }
+
+        try
+        {
+            var tasks = await _queueService.GetUserTasksAsync(userId);
+            
+            return Ok(new
+            {
+                success = true,
+                tasks = tasks.Select(t => new
+                {
+                    taskId = t.TaskId,
+                    status = t.Status.ToString(),
+                    size = t.Size,
+                    method = t.Method,
+                    createdAt = t.CreatedAt,
+                    startedAt = t.StartedAt,
+                    completedAt = t.CompletedAt,
+                    executionTime = t.ExecutionTime,
+                    errorMessage = t.ErrorMessage
+                })
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting user tasks");
+            return StatusCode(500, new { success = false, error = "Internal server error" });
+        }
     }
 }
 

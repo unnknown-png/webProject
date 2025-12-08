@@ -199,20 +199,20 @@ const MatrixModule = (() => {
                 
                 return { success: true, data, isSmall: true };
             } else {
-                // Large matrix - solve stored
+                // Large matrix - queue for async processing via Redis
                 if (!matrixId) {
                     return { success: false, needsGeneration: true };
                 }
                 
-                const res = await fetch('/api/matrix/solve-stored', {
+                console.log('🚀 Queueing matrix task for async processing...');
+                
+                const res = await fetch('/api/matrix/queue-solve', {
                     method: 'POST',
                     headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Task-Id': taskId
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ 
-                        matrixId,
-                        taskId: taskId
+                        matrixId
                     })
                 });
                 
@@ -223,7 +223,8 @@ const MatrixModule = (() => {
                     return { success: false, error: true, data };
                 }
                 
-                return { success: true, data, isSmall: false };
+                console.log('✅ Task queued successfully:', data);
+                return { success: true, data, isSmall: false, queued: true };
             }
         } catch (err) {
             console.error('Solve error:', err);

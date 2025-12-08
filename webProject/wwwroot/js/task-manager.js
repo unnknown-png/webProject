@@ -9,6 +9,18 @@ const TaskManagerModule = (() => {
 
     function init(container, connection) {
         tasksContainer = container;
+        
+        if (!tasksContainer) {
+            console.error('TaskManager: tasksContainer is null!');
+            return;
+        }
+        
+        if (connection) {
+            setSignalRConnection(connection);
+        }
+    }
+    
+    function setSignalRConnection(connection) {
         signalRConnection = connection;
         
         // Listen to SignalR progress updates
@@ -16,6 +28,55 @@ const TaskManagerModule = (() => {
             signalRConnection.on("ReceiveProgress", (taskId, percent, stage, message) => {
                 updateTaskProgress(taskId, percent, message, stage);
             });
+            
+            // Task queued - worker will pick it up
+            signalRConnection.on("TaskQueued", (data) => {
+                console.log('Task queued:', data);
+                updateTaskProgress(data.taskId, 0, data.message || 'Queued for processing', 'Queued');
+            });
+            
+            // Task status changed (e.g., worker started processing)
+            signalRConnection.on("TaskStatusChanged", (data) => {
+                console.log('Task status changed:', data);
+                updateTaskProgress(data.taskId, 5, data.message || 'Processing started', 'Processing');
+            });
+            
+            // Task completed successfully
+            signalRConnection.on("TaskCompleted", (data) => {
+                console.log('Task completed:', data);
+                updateTaskProgress(data.taskId, 100, data.message || 'Completed', 'Completed');
+                
+                // Reload history
+                if (typeof HistoryModule !== 'undefined') {
+                    setTimeout(() => HistoryModule.loadHistory(), 500);
+                }
+                
+                // Show result notification
+                if (data.result) {
+                    try {
+                        const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+                        const msg = `✓ Matrix ${data.size || ''}×${data.size || ''} solved in ${data.executionTime?.toFixed(2) || '?'}s`;
+                        if (typeof ValidationModule !== 'undefined') {
+                            ValidationModule.showResult(msg);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing result:', e);
+                    }
+                }
+            });
+            
+            // Task failed
+            signalRConnection.on("TaskFailed", (data) => {
+                console.log('Task failed:', data);
+                updateTaskProgress(data.taskId, 0, data.message || data.error || 'Failed', 'Failed');
+                
+                // Show error
+                if (typeof ValidationModule !== 'undefined') {
+                    ValidationModule.showResult(`Error: ${data.error || 'Task failed'}`, true);
+                }
+            });
+            
+            console.log('TaskManager: SignalR handlers registered');
         }
     }
 
@@ -331,6 +392,7 @@ const TaskManagerModule = (() => {
 
     return {
         init,
+        setSignalRConnection,
         canCreateTask,
         getActiveTaskCount,
         createTask,

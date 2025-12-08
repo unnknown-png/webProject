@@ -18,6 +18,9 @@
     MatrixModule.init(matrixWrap, initialSize);
     HistoryModule.init(historyEl);
     ThemeModule.init($('themeToggle'));
+    
+    // Initialize TaskManager immediately (before SignalR)
+    TaskManagerModule.init(tasksContainer, null);
 
     // Initialize SignalR and TaskManager
     let signalRConnection = null;
@@ -43,9 +46,13 @@
         signalRConnection.start()
             .then(() => {
                 console.log('SignalR connected');
-                TaskManagerModule.init(tasksContainer, signalRConnection);
+                // Set SignalR connection after successful connection
+                TaskManagerModule.setSignalRConnection(signalRConnection);
             })
-            .catch(err => console.error("SignalR connection error:", err));
+            .catch(err => {
+                console.error("SignalR connection error:", err);
+                console.warn("TaskManager will work without real-time updates");
+            });
     }
 
     // SIZE INPUT HANDLERS
@@ -112,26 +119,35 @@
 
     // SOLVE BUTTON
     $('solve').addEventListener('click', async () => {
+        console.log('🔵 Solve button clicked');
         resultEl.hidden = true;
         
         if (!ValidationModule.validateMatrixSize(MatrixModule.getSize())) {
+            console.log('❌ Matrix size validation failed');
             return;
         }
         
+        console.log('✅ Matrix size valid:', MatrixModule.getSize());
+        
         // Check if we can create a new task
         if (!TaskManagerModule.canCreateTask()) {
+            console.log('❌ Cannot create task - max limit reached');
             ValidationModule.showResult('Maximum 3 concurrent tasks allowed. Please wait for a task to complete or cancel one.', true);
             return;
         }
         
+        console.log('✅ Can create new task');
+        
         // Create task in TaskManager
         const taskResult = TaskManagerModule.createTask(MatrixModule.getSize());
         if (!taskResult.success) {
+            console.log('❌ Task creation failed:', taskResult.error);
             ValidationModule.showResult(taskResult.error, true);
             return;
         }
         
         const taskId = taskResult.taskId;
+        console.log('✅ Task created:', taskId);
         
         try {
             let requestBody, endpoint;
@@ -151,9 +167,14 @@
                     rightHandSide: rhs,
                     taskId: taskId
                 };
+                console.log('📤 Sending small matrix to:', endpoint);
             } else {
                 // Large matrix - solve stored
-                if (!MatrixModule.getMatrixId()) {
+                const matrixId = MatrixModule.getMatrixId();
+                console.log('🔍 Matrix ID:', matrixId);
+                
+                if (!matrixId) {
+                    console.log('❌ No matrix ID - need to generate first');
                     TaskManagerModule.removeTask(taskId);
                     ValidationModule.showResult('Generate matrix first!', true);
                     return;
@@ -161,10 +182,13 @@
                 
                 endpoint = '/api/matrix/solve-stored';
                 requestBody = { 
-                    matrixId: MatrixModule.getMatrixId(),
+                    matrixId: matrixId,
                     taskId: taskId
                 };
+                console.log('📤 Sending large matrix to:', endpoint, 'with matrixId:', matrixId);
             }
+            
+            console.log('📡 Fetching:', endpoint, requestBody);
             
             const res = await fetch(endpoint, {
                 method: 'POST',
@@ -175,10 +199,13 @@
                 body: JSON.stringify(requestBody)
             });
             
+            console.log('📥 Response status:', res.status, res.statusText);
+            
             const data = await res.json();
+            console.log('📦 Response data:', data);
             
             if (!res.ok) {
-                console.error('Server error response:', data);
+                console.error('❌ Server error response:', data);
                 const errorMsg = data.details 
                     ? `${data.error}: ${data.details}` 
                     : (data.error || 'Request failed');
@@ -187,8 +214,24 @@
                 return;
             }
             
+            // Check if task was queued for background processing
+            if (data.status === 'queued' || data.status === 'Queued') {
+                console.log('✅ Task queued successfully');
+                // Task is queued - worker will process it
+                // Update task manager to show queued state
+                TaskManagerModule.updateTaskProgress(taskId, 0, data.message || 'Queued for processing', 'Queued');
+                ValidationModule.showResult(`Task queued successfully. Matrix ${MatrixModule.getSize()}×${MatrixModule.getSize()} will be processed by a worker.`);
+                
+                // Clear matrix ID since it's queued
+                if (MatrixModule.getSize() >= 10) {
+                    MatrixModule.clearMatrixId();
+                }
+                
+                return; // Don't try to show results yet - SignalR will notify when done
+            }
+            
             if (data.success) {
-                // Task completed successfully - progress updates handled by SignalR
+                // Task completed successfully immediately (small matrices)
                 // Show results
                 if (MatrixModule.getSize() < 10) {
                     const resultHTML = ResultRenderer.renderSmallMatrixResult(data);

@@ -964,3 +964,133 @@ body[data-theme="light"] .matrix-scroll {
     }
 }
 
+/* Queue Tasks Styles */
+.queue-tasks-container {
+    margin-bottom: 20px;
+}
+
+.queue-tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.queue-task-item {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.queue-task-item.queued {
+    border-left: 3px solid #ffa500;
+}
+
+.queue-task-item.processing {
+    border-left: 3px solid var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.queue-task-item.completed {
+    border-left: 3px solid #4ade80;
+}
+
+.queue-task-item.failed {
+    border-left: 3px solid var(--danger);
+}
+
+.task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.task-status {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.task-size {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.task-message {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.task-time {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--accent);
+}
+
+.task-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px 8px;
+    line-height: 1;
+}
+
+.task-dismiss:hover {
+    color: var(--danger);
+}
+
+.no-tasks {
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Queue Notifications */
+.queue-notification {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transform: translateX(500px);
+    transition: transform 0.3s ease;
+    z-index: 2000;
+}
+
+.queue-notification.show {
+    transform: translateX(0);
+}
+
+.queue-notification.success {
+    border-left: 3px solid #4ade80;
+}
+
+.queue-notification.error {
+    border-left: 3px solid var(--danger);
+}
+
+.queue-notification.info {
+    border-left: 3px solid var(--accent);
+}
+

@@ -9,6 +9,7 @@ using webProject.Data;
 using webProject.Middleware;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.DataProtection;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,14 +43,35 @@ builder.Services.AddDataProtection()
     .PersistKeysToDbContext<ApplicationDbContext>()
     .SetApplicationName("GaussSolver"); // Same name for all instances
 
+// Add Redis connection
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var configuration = ConfigurationOptions.Parse("localhost:6379");
+    configuration.AbortOnConnectFail = false;
+    return ConnectionMultiplexer.Connect(configuration);
+});
+
+// Add Redis Queue Service
+builder.Services.AddSingleton<IRedisQueueService, RedisQueueService>();
+
 // Register services
 builder.Services.AddScoped<IGaussianEliminationService, GaussianEliminationService>();
 builder.Services.AddScoped<ILUDecompositionService, LUDecompositionService>();
 builder.Services.AddScoped<ICombinedMatrixService, CombinedMatrixService>();
 builder.Services.AddSingleton<ITaskManager, TaskManager>();
 
-// Add SignalR
-builder.Services.AddSignalR();
+// Add Background Workers (1 worker per server for now)
+builder.Services.AddHostedService<MatrixWorker>();
+
+
+// Add SignalR with Redis backplane for scale-out
+// This allows SignalR messages to be sent across all server instances
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(options =>
+    {
+        options.Configuration.EndPoints.Add("localhost:6379");
+        options.Configuration.AbortOnConnectFail = false;
+    });
 
 // Register RunId provider (unique per application run)
 var runId = Guid.NewGuid().ToString();

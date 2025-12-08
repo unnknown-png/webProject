@@ -392,9 +392,13 @@ public class MatrixController : Controller
 
             _logger.LogInformation($"Enqueuing matrix {matrix.Size}x{matrix.Size} to Redis queue for user {userId}");
             
+            // Use taskId from client if provided, otherwise generate new one
+            var taskId = request.TaskId ?? $"task_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString("N")[..8]}";
+            
             // Create MatrixTask for Redis queue
             var matrixTask = new MatrixTask
             {
+                TaskId = taskId,  // Use client's taskId!
                 MatrixId = request.MatrixId,
                 UserId = userId,
                 Size = matrix.Size,
@@ -403,7 +407,6 @@ public class MatrixController : Controller
             };
             
             // Enqueue task to Redis - workers will pick it up
-            var taskId = await _queueService.EnqueueTaskAsync(matrixTask);
             
             // Associate task with user in TaskManager for tracking
             _taskManager.AssociateTaskWithUser(taskId, userId);
@@ -415,8 +418,9 @@ public class MatrixController : Controller
             Console.WriteLine($"");
             Console.ResetColor();
 
-            // Notify user via SignalR
-            await _hubContext.Clients.User(userId.ToString())
+            // Notify user via SignalR using Groups (works with Redis Backplane)
+            var groupName = $"user_{userId}";
+            await _hubContext.Clients.Group(groupName)
                 .SendAsync("TaskQueued", new { 
                     taskId,
                     status = "Queued",

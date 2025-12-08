@@ -36,8 +36,12 @@ namespace webProject.Services
         
         public async Task<string> EnqueueTaskAsync(MatrixTask task)
         {
-            // Generate unique task ID
-            task.TaskId = $"task_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString()[..8]}";
+            // Use existing task ID if provided, otherwise generate new one
+            if (string.IsNullOrEmpty(task.TaskId))
+            {
+                task.TaskId = $"task_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString()[..8]}";
+            }
+            
             task.Status = Models.TaskStatus.Queued;
             task.CreatedAt = DateTime.UtcNow;
             

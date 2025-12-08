@@ -44,24 +44,19 @@ const TaskManagerModule = (() => {
             // Task completed successfully
             signalRConnection.on("TaskCompleted", (data) => {
                 console.log('Task completed:', data);
+                
+                // Update progress bar to 100%
                 updateTaskProgress(data.taskId, 100, data.message || 'Completed', 'Completed');
                 
-                // Reload history
+                // Reload history after short delay
                 if (typeof HistoryModule !== 'undefined') {
                     setTimeout(() => HistoryModule.loadHistory(), 500);
                 }
                 
-                // Show result notification
-                if (data.result) {
-                    try {
-                        const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-                        const msg = `✓ Matrix ${data.size || ''}×${data.size || ''} solved in ${data.executionTime?.toFixed(2) || '?'}s`;
-                        if (typeof ValidationModule !== 'undefined') {
-                            ValidationModule.showResult(msg);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing result:', e);
-                    }
+                // Show simple success message
+                if (typeof ValidationModule !== 'undefined') {
+                    const msg = `✓ Matrix ${data.size}×${data.size} solved successfully in ${data.executionTime?.toFixed(2)}s`;
+                    ValidationModule.showResult(msg);
                 }
             });
             

@@ -58,16 +58,24 @@ namespace webProject.Services
                     }
                     
                     Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine($"⚙️  [WORKER-{_workerNumber}] Processing task {task.TaskId} - Size: {task.Size}x{task.Size}, User: {task.UserId}");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] ════════════════════════════════════");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] TASK PROCESSING STARTED");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] Task ID    : {task.TaskId}");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] Matrix Size: {task.Size}x{task.Size}");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] User ID    : {task.UserId}");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] Matrix ID  : {task.MatrixId}");
+                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] ════════════════════════════════════");
                     Console.ResetColor();
                     _logger.LogInformation($"[WORKER-{_workerNumber}] Processing task {task.TaskId} - Size: {task.Size}x{task.Size}");
                     
-                    // Notify user that processing started
-                    await _hubContext.Clients.User(task.UserId.ToString())
+                    // Notify user that processing started via SignalR Groups
+                    var groupName = $"user_{task.UserId}";
+                    await _hubContext.Clients.Group(groupName)
                         .SendAsync("TaskStatusChanged", new { 
                             taskId = task.TaskId, 
                             status = "Processing",
-                            message = $"Worker-{_workerNumber} started processing your matrix {task.Size}x{task.Size}"
+                            size = task.Size,
+                            message = $"Processing matrix {task.Size}x{task.Size}"
                         }, stoppingToken);
                     
                     var startTime = DateTime.UtcNow;
@@ -82,10 +90,26 @@ namespace webProject.Services
                             throw new Exception($"Matrix {task.MatrixId} not found in Redis cache");
                         }
                         
-                        // Solve the matrix using combined service
+                        // Create progress reporter for real-time updates via SignalR
+                        var progress = new Progress<ProgressInfo>(async info =>
+                        {
+                            try
+                            {
+                                // Send progress update to user's SignalR group for UI progress bar
+                                await _hubContext.Clients.Group(groupName)
+                                    .SendAsync("ReceiveProgress", task.TaskId, info.Percent, info.Stage, info.Message);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "[WORKER-{WorkerId}] Failed to send progress update", _workerNumber);
+                            }
+                        });
+                        
+                        // Solve the matrix with progress reporting
                         var result = await combinedService.SolveAndDecomposeAsync(
                             matrixData.Coefficients, 
                             matrixData.RightHandSide,
+                            progress,  // ← Pass progress callback!
                             cancellationToken: stoppingToken
                         );
                         
@@ -118,14 +142,21 @@ namespace webProject.Services
                         // Mark task as completed in Redis
                         await queueService.CompleteTaskAsync(task.TaskId, resultJson, executionTime);
                         
-                        // Notify user via SignalR
-                        await _hubContext.Clients.User(task.UserId.ToString())
+                        // Notify user via SignalR using Groups (works with Redis Backplane)
+                        Console.ForegroundColor = ConsoleColor.Blue;
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] SENDING SIGNALR NOTIFICATION");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] Group Name: {groupName}");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] Event     : TaskCompleted");
+                        Console.ResetColor();
+                        
+                        await _hubContext.Clients.Group(groupName)
                             .SendAsync("TaskCompleted", new { 
                                 taskId = task.TaskId,
                                 status = "Completed",
+                                size = task.Size,
                                 result = resultJson,
                                 executionTime,
-                                message = $"Matrix {task.Size}x{task.Size} solved successfully by Worker-{_workerNumber}"
+                                message = $"Matrix {task.Size}x{task.Size} solved successfully"
                             }, stoppingToken);
                         
                         Console.ForegroundColor = ConsoleColor.Green;
@@ -134,6 +165,7 @@ namespace webProject.Services
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] Task ID       : {task.TaskId}");
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] Execution Time: {executionTime:F2}s");
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] History ID    : {history.Id}");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] SignalR Sent  : YES");
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] ════════════════════════════════════");
                         Console.WriteLine($"");
                         Console.ResetColor();
@@ -159,11 +191,12 @@ namespace webProject.Services
                         dbContext.CalculationHistories.Add(history);
                         await dbContext.SaveChangesAsync(stoppingToken);
                         
-                        // Notify user via SignalR
-                        await _hubContext.Clients.User(task.UserId.ToString())
+                        // Notify user via SignalR using Groups
+                        await _hubContext.Clients.Group(groupName)
                             .SendAsync("TaskFailed", new { 
                                 taskId = task.TaskId,
                                 status = "Failed",
+                                size = task.Size,
                                 error = ex.Message,
                                 message = $"Failed to solve matrix {task.Size}x{task.Size}"
                             }, stoppingToken);

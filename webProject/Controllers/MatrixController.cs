@@ -407,6 +407,7 @@ public class MatrixController : Controller
             };
             
             // Enqueue task to Redis - workers will pick it up
+            await _queueService.EnqueueTaskAsync(matrixTask);
             
             // Associate task with user in TaskManager for tracking
             _taskManager.AssociateTaskWithUser(taskId, userId);
@@ -648,5 +649,30 @@ public class MatrixController : Controller
             return StatusCode(500, new { success = false, error = "Internal server error" });
         }
     }
+    
+    // API: Get queue statistics
+    [HttpGet]
+    [Route("api/matrix/queue-stats")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetQueueStats()
+    {
+        try
+        {
+            var queueLength = await _queueService.GetQueueLengthAsync();
+            
+            return Ok(new
+            {
+                success = true,
+                queueLength = queueLength,
+                message = queueLength == 0 
+                    ? "Queue is empty" 
+                    : $"{queueLength} task(s) waiting in queue"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting queue statistics");
+            return StatusCode(500, new { success = false, error = "Internal server error" });
+        }
+    }
 }
-

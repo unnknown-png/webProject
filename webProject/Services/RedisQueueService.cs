@@ -12,6 +12,7 @@ namespace webProject.Services
         Task UpdateTaskStatusAsync(string taskId, Models.TaskStatus status, string? errorMessage = null);
         Task CompleteTaskAsync(string taskId, string resultJson, double executionTime);
         Task<List<MatrixTask>> GetUserTasksAsync(int userId);
+        Task<long> GetQueueLengthAsync();
         
         // Matrix cache methods
         Task StoreMatrixAsync(string matrixId, GeneratedMatrix matrix, TimeSpan? expiration = null);
@@ -160,6 +161,11 @@ namespace webProject.Services
             }
             
             return tasks.OrderByDescending(t => t.CreatedAt).ToList();
+        }
+        
+        public async Task<long> GetQueueLengthAsync()
+        {
+            return await _db.ListLengthAsync(QUEUE_KEY);
         }
         
         // Matrix cache methods

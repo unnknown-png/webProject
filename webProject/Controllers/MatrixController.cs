@@ -455,11 +455,16 @@ public class MatrixController : Controller
     // API: Cancel task
     [HttpPost]
     [Route("api/matrix/cancel/{taskId}")]
-    public IActionResult CancelTask(string taskId)
+    public async Task<IActionResult> CancelTask(string taskId)
     {
         try
         {
+            // Спробувати скасувати в TaskManager (для малих матриць)
             _taskManager.CancelTask(taskId);
+            
+            // Також скасувати в Redis (для великих матриць)
+            await _queueService.CancelTaskAsync(taskId);
+            
             _logger.LogInformation($"Task {taskId} cancellation requested");
             return Ok(new { success = true, message = "Task cancellation requested" });
         }

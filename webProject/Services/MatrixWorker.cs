@@ -82,6 +82,26 @@ namespace webProject.Services
                     
                     try
                     {
+                        // Перевірити чи задача не була скасована ще до початку обробки
+                        if (await queueService.IsTaskCancelledAsync(task.TaskId))
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"[WORKER-{_workerNumber:D2}] Task {task.TaskId} was CANCELLED before processing started");
+                            Console.ResetColor();
+                            
+                            // Повідомити клієнта
+                            await _hubContext.Clients.Group(groupName)
+                                .SendAsync("TaskFailed", new { 
+                                    taskId = task.TaskId,
+                                    status = "Cancelled",
+                                    size = task.Size,
+                                    error = "Task was cancelled by user",
+                                    message = $"Matrix {task.Size}x{task.Size} calculation was cancelled"
+                                }, stoppingToken);
+                            
+                            continue; // Перейти до наступного завдання
+                        }
+                        
                         // Get matrix from Redis cache using MatrixId
                         var matrixData = await queueService.GetMatrixAsync(task.MatrixId);
                         
@@ -89,6 +109,27 @@ namespace webProject.Services
                         {
                             throw new Exception($"Matrix {task.MatrixId} not found in Redis cache");
                         }
+                        
+                        // Створити CancellationTokenSource який буде перевіряти Redis
+                        using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                        
+                        // Запустити фоновий таймер для перевірки скасування
+                        var cancellationCheckTask = Task.Run(async () =>
+                        {
+                            while (!taskCts.Token.IsCancellationRequested)
+                            {
+                                await Task.Delay(500, stoppingToken); // Перевіряти кожні 500ms
+                                
+                                if (await queueService.IsTaskCancelledAsync(task.TaskId))
+                                {
+                                    Console.ForegroundColor = ConsoleColor.Yellow;
+                                    Console.WriteLine($"[WORKER-{_workerNumber:D2}] 🛑 CANCELLATION DETECTED for task {task.TaskId}");
+                                    Console.ResetColor();
+                                    taskCts.Cancel(); // Скасувати обчислення
+                                    break;
+                                }
+                            }
+                        }, stoppingToken);
                         
                         // Create progress reporter for real-time updates via SignalR
                         var progress = new Progress<ProgressInfo>(async info =>
@@ -110,10 +151,17 @@ namespace webProject.Services
                             matrixData.Coefficients, 
                             matrixData.RightHandSide,
                             progress,  // ← Pass progress callback!
-                            cancellationToken: stoppingToken
+                            cancellationToken: taskCts.Token  // ← Використовуємо токен який перевіряє Redis!
                         );
                         
                         var executionTime = (DateTime.UtcNow - startTime).TotalSeconds;
+                        
+                        // ВАЖЛИВО: Перевірити ще раз чи задача не була скасована
+                        // Навіть якщо обчислення завершилось, користувач міг скасувати під кінець
+                        if (await queueService.IsTaskCancelledAsync(task.TaskId) || taskCts.Token.IsCancellationRequested)
+                        {
+                            throw new OperationCanceledException("Task was cancelled by user");
+                        }
                         
                         // Save result to database
                         var history = new CalculationHistory
@@ -170,6 +218,48 @@ namespace webProject.Services
                         Console.WriteLine($"");
                         Console.ResetColor();
                         _logger.LogInformation($"[WORKER-{_workerNumber}] Task {task.TaskId} completed in {executionTime:F2}s");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Task was cancelled by user
+                        var executionTime = (DateTime.UtcNow - startTime).TotalSeconds;
+                        
+                        await queueService.UpdateTaskStatusAsync(task.TaskId, Models.TaskStatus.Cancelled, "Task was cancelled by user");
+                        
+                        // Save cancellation to database
+                        var history = new CalculationHistory
+                        {
+                            UserId = task.UserId,
+                            Size = task.Size,
+                            MatrixData = JsonSerializer.Serialize(new { matrixId = task.MatrixId }, JsonOptions),
+                            Solution = "[]",
+                            Success = false,
+                            ErrorMessage = "Task was cancelled by user",
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        
+                        dbContext.CalculationHistories.Add(history);
+                        await dbContext.SaveChangesAsync(stoppingToken);
+                        
+                        // Notify user via SignalR
+                        await _hubContext.Clients.Group(groupName)
+                            .SendAsync("TaskFailed", new { 
+                                taskId = task.TaskId,
+                                status = "Cancelled",
+                                size = task.Size,
+                                error = "Task was cancelled by user",
+                                message = $"Matrix {task.Size}x{task.Size} calculation was cancelled"
+                            }, stoppingToken);
+                        
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] ════════════════════════════════════");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] TASK CANCELLED BY USER");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] Task ID       : {task.TaskId}");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] Execution Time: {executionTime:F2}s (partial)");
+                        Console.WriteLine($"[WORKER-{_workerNumber:D2}] ════════════════════════════════════");
+                        Console.WriteLine($"");
+                        Console.ResetColor();
+                        _logger.LogWarning($"[WORKER-{_workerNumber}] Task {task.TaskId} was cancelled after {executionTime:F2}s");
                     }
                     catch (Exception ex)
                     {

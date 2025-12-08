@@ -13,6 +13,8 @@ namespace webProject.Services
         Task CompleteTaskAsync(string taskId, string resultJson, double executionTime);
         Task<List<MatrixTask>> GetUserTasksAsync(int userId);
         Task<long> GetQueueLengthAsync();
+        Task CancelTaskAsync(string taskId);
+        Task<bool> IsTaskCancelledAsync(string taskId);
         
         // Matrix cache methods
         Task StoreMatrixAsync(string matrixId, GeneratedMatrix matrix, TimeSpan? expiration = null);
@@ -166,6 +168,40 @@ namespace webProject.Services
         public async Task<long> GetQueueLengthAsync()
         {
             return await _db.ListLengthAsync(QUEUE_KEY);
+        }
+        
+        public async Task CancelTaskAsync(string taskId)
+        {
+            var task = await GetTaskStatusAsync(taskId);
+            
+            if (task == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[REDIS QUEUE] Task {taskId} not found for cancellation");
+                Console.ResetColor();
+                return;
+            }
+            
+            // Якщо задача ще в черзі (Queued) - не робимо нічого, воркер її не взяв
+            // Якщо Processing - встановлюємо статус Cancelled, воркер побачить
+            if (task.Status == Models.TaskStatus.Processing || task.Status == Models.TaskStatus.Queued)
+            {
+                task.Status = Models.TaskStatus.Cancelled;
+                task.ErrorMessage = "Task was cancelled by user";
+                
+                await _db.StringSetAsync(TASK_PREFIX + taskId, JsonSerializer.Serialize(task), TimeSpan.FromHours(24));
+                
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[REDIS QUEUE] Task {taskId} marked as CANCELLED");
+                Console.WriteLine($"[REDIS QUEUE] Previous status: {task.Status}");
+                Console.ResetColor();
+            }
+        }
+        
+        public async Task<bool> IsTaskCancelledAsync(string taskId)
+        {
+            var task = await GetTaskStatusAsync(taskId);
+            return task?.Status == Models.TaskStatus.Cancelled;
         }
         
         // Matrix cache methods

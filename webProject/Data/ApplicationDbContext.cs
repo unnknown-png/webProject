@@ -23,10 +23,8 @@ namespace webProject.Data
             {
                 entity.HasKey(e => e.Id);
                 
-                // Indexes for fast lookups
                 entity.HasIndex(e => e.Email).IsUnique();
                 
-                // Required properties with constraints
                 entity.Property(e => e.Email)
                     .IsRequired()
                     .HasMaxLength(255);
@@ -43,12 +41,10 @@ namespace webProject.Data
             {
                 entity.HasKey(e => e.Id);
                 
-                // Indexes for optimized queries
                 entity.HasIndex(e => e.UserId);
                 entity.HasIndex(e => e.CreatedAt);
-                entity.HasIndex(e => new { e.UserId, e.Success }); // Composite index for filtering user's successful/failed calculations
+                entity.HasIndex(e => new { e.UserId, e.Success }); 
                 
-                // Required properties with constraints
                 entity.Property(e => e.Size)
                     .IsRequired();
                     
@@ -61,10 +57,8 @@ namespace webProject.Data
                 entity.Property(e => e.CreatedAt)
                     .IsRequired();
                 
-                // Check constraint for positive matrix size
                 entity.ToTable(t => t.HasCheckConstraint("CK_CalculationHistory_MatrixSize", "\"Size\" > 0"));
                 
-                // Foreign key relationship with cascade delete
                 entity.HasOne(e => e.User)
                     .WithMany()
                     .HasForeignKey(e => e.UserId)

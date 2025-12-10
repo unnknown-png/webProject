@@ -27,7 +27,6 @@ public class ProgressHub : Hub
             "[SIGNALR HUB] ========================================",
             connectionId, userId ?? "ANONYMOUS");
 
-        // Add user to their personal group for targeted messaging
         if (!string.IsNullOrEmpty(userId))
         {
             await Groups.AddToGroupAsync(connectionId, $"user_{userId}");

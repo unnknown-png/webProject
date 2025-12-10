@@ -1,5 +1,3 @@
-// HISTORY MODULE
-// Handles calculation history loading, rendering, and management
 
 const HistoryModule = (() => {
     let historyEl = null;
@@ -36,7 +34,6 @@ const HistoryModule = (() => {
             el.className = 'history-item';
             const solution = h.success ? JSON.parse(h.solution) : null;
             
-            // Format time (already in Kyiv timezone from backend)
             const date = new Date(h.createdAt);
             const kyivTime = date.toLocaleString('uk-UA', {
                 year: 'numeric',

@@ -22,7 +22,6 @@ public class HistoryController : Controller
         _logger = logger;
     }
 
-    // API: Get user's calculation history
     [HttpGet]
     [Route("api/history")]
     public async Task<IActionResult> GetHistory([FromQuery] int limit = 20)
@@ -41,7 +40,6 @@ public class HistoryController : Controller
                 .Take(Math.Min(limit, 100))
                 .ToListAsync();
             
-            // Convert UTC to Kyiv time for display
             var history = historyData.Select(h => new
             {
                 id = h.Id,
@@ -62,7 +60,6 @@ public class HistoryController : Controller
         }
     }
 
-    // API: Clear user's calculation history
     [HttpDelete]
     [Route("api/history")]
     public async Task<IActionResult> ClearHistory()
@@ -91,7 +88,6 @@ public class HistoryController : Controller
         }
     }
 
-    // API: Export history as JSON
     [HttpGet]
     [Route("api/history/export")]
     public async Task<IActionResult> ExportHistory()
@@ -109,7 +105,6 @@ public class HistoryController : Controller
                 .OrderByDescending(h => h.CreatedAt)
                 .ToListAsync();
             
-            // Convert UTC to Kyiv time for export
             var history = historyData.Select(h => new
             {
                 id = h.Id,

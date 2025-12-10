@@ -15,7 +15,6 @@ namespace webProject.Migrations
     [Migration("20251129120810_AddDatabaseOptimizations")]
     partial class AddDatabaseOptimizations
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

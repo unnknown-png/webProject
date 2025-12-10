@@ -11,7 +11,6 @@ public class HomeController : Controller
         return View();
     }
 
-    // Simple error action placeholder
     public IActionResult Error()
     {
         return Problem("An error occurred.");

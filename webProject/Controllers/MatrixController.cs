@@ -52,7 +52,6 @@ public class MatrixController : Controller
         _queueService = queueService;
     }
 
-    // API: Solve matrix system (for small matrices < 10)
     [HttpPost]
     [Route("api/matrix/solve")]
     public async Task<IActionResult> Solve([FromBody] MatrixRequest request)
@@ -62,7 +61,6 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
-        // Get user ID (declared at method level for catch block access)
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!int.TryParse(userIdClaim, out int userId))
         {
@@ -71,7 +69,6 @@ public class MatrixController : Controller
 
         try
         {
-            // Check if user can create new task (max 3 concurrent)
             if (!_taskManager.CanCreateTask(userId))
             {
                 return BadRequest(new 
@@ -83,12 +80,10 @@ public class MatrixController : Controller
             
             var size = request.Coefficients.Length;
             
-            // Log matrix solving request
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine($"[{_serverName}] Received matrix solve request - Size: {size}x{size}");
             Console.ResetColor();
             
-            // Validate matrix size
             if (size < MatrixConstants.MinMatrixSize || size > MatrixConstants.MaxMatrixSize)
             {
                 return BadRequest(new 
@@ -98,7 +93,6 @@ public class MatrixController : Controller
                 });
             }
 
-            // Validate matrix values (NaN, Infinity, too large numbers)
             if (!ValidateMatrixValues(request.Coefficients, request.RightHandSide))
             {
                 return BadRequest(new 
@@ -108,7 +102,6 @@ public class MatrixController : Controller
                 });
             }
 
-            // For display optimization: small matrices (<10) can be sent directly
             if (size >= MatrixConstants.SmallMatrixThreshold)
             {
                 return BadRequest(new 
@@ -118,17 +111,14 @@ public class MatrixController : Controller
                 });
             }
 
-            // Create task ID for tracking (use client-provided taskId or generate new one)
             var taskId = !string.IsNullOrEmpty(request.TaskId) 
                 ? _taskManager.CreateTask(request.TaskId)
                 : _taskManager.CreateTask();
             
-            // Associate task with user
             _taskManager.AssociateTaskWithUser(taskId, userId);
             
             var cts = _taskManager.GetCancellationToken(taskId);
 
-            // Create progress reporter
             var progress = new Progress<ProgressInfo>(async info =>
             {
                 try
@@ -141,21 +131,18 @@ public class MatrixController : Controller
                 }
             });
 
-            // Use combined service to solve and decompose simultaneously
             var result = await _combinedService.SolveAndDecomposeAsync(
                 request.Coefficients, 
                 request.RightHandSide, 
                 progress,
                 cts?.Token ?? default);
             
-            // Cleanup task
             _taskManager.RemoveTask(taskId);
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[{_serverName}] Successfully solved matrix {size}x{size} - Time: {result.ComputationTimeSeconds:F3}s");
             Console.ResetColor();
 
-            // Save to history (userId already parsed at the beginning)
             var history = new CalculationHistory
             {
                 UserId = userId,
@@ -170,7 +157,6 @@ public class MatrixController : Controller
             _context.CalculationHistories.Add(history);
             await _context.SaveChangesAsync();
 
-            // Check for invalid numbers (Infinity, NaN)
             double? determinant = null;
             if (result.LUDecomposition.Success)
             {
@@ -202,7 +188,6 @@ public class MatrixController : Controller
         {
             _logger.LogWarning("Matrix calculation was cancelled by user");
             
-            // Save cancellation to history (userId already parsed at the beginning)
             var history = new CalculationHistory
             {
                 UserId = userId,
@@ -227,7 +212,6 @@ public class MatrixController : Controller
         {
             _logger.LogError(ex, "Error solving matrix. Size: {Size}", request.Coefficients?.Length ?? 0);
             
-            // Try to save error to history
             try
             {
                 var history = new CalculationHistory
@@ -258,7 +242,6 @@ public class MatrixController : Controller
         }
     }
 
-    // API: Generate random matrix
     [HttpPost]
     [Route("api/matrix/generate")]
     public async Task<IActionResult> Generate([FromBody] MatrixGenerateRequest request)
@@ -268,7 +251,6 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
-        // Validate matrix size
         if (request.Size < MatrixConstants.MinMatrixSize || request.Size > MatrixConstants.MaxMatrixSize)
         {
             return BadRequest(new 
@@ -287,12 +269,10 @@ public class MatrixController : Controller
             
             var matrix = _gaussService.GenerateRandomMatrix(request.Size, request.MinValue, request.MaxValue);
             
-            // For large matrices (>= 10), store in cache and return matrixId
             if (request.Size >= MatrixConstants.SmallMatrixThreshold)
             {
                 var matrixId = Guid.NewGuid().ToString();
                 
-                // Store in Redis cache (shared across all servers)
                 await _queueService.StoreMatrixAsync(matrixId, matrix, TimeSpan.FromMinutes(MatrixConstants.MatrixCacheExpirationMinutes));
                 
                 Console.ForegroundColor = ConsoleColor.Green;
@@ -319,7 +299,6 @@ public class MatrixController : Controller
             Console.WriteLine($"");
             Console.ResetColor();
             
-            // For small matrices, return data directly
             return Ok(new
             {
                 success = true,
@@ -343,7 +322,6 @@ public class MatrixController : Controller
         }
     }
 
-    // API: Solve stored matrix (for large matrices)
     [HttpPost]
     [Route("api/matrix/solve-stored")]
     [SuppressMessage("ReSharper.DPA", "DPA0000: DPA issues")]
@@ -354,7 +332,6 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
-        // Get user ID (declared at method level for catch block access)
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!int.TryParse(userIdClaim, out int userId))
         {
@@ -363,7 +340,6 @@ public class MatrixController : Controller
 
         try
         {
-            // Check if user can create new task (max 3 concurrent)
             if (!_taskManager.CanCreateTask(userId))
             {
                 return BadRequest(new 
@@ -373,7 +349,6 @@ public class MatrixController : Controller
                 });
             }
             
-            // Get matrix from Redis cache (shared across all servers)
             var matrix = await _queueService.GetMatrixAsync(request.MatrixId);
             
             if (matrix == null)
@@ -392,10 +367,8 @@ public class MatrixController : Controller
 
             _logger.LogInformation($"Enqueuing matrix {matrix.Size}x{matrix.Size} to Redis queue for user {userId}");
             
-            // Use taskId from client if provided, otherwise generate new one
             var taskId = request.TaskId ?? $"task_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString("N")[..8]}";
             
-            // Create MatrixTask for Redis queue
             var matrixTask = new MatrixTask
             {
                 TaskId = taskId,  // Use client's taskId!
@@ -406,10 +379,8 @@ public class MatrixController : Controller
                 Status = Models.TaskStatus.Queued
             };
             
-            // Enqueue task to Redis - workers will pick it up
             await _queueService.EnqueueTaskAsync(matrixTask);
             
-            // Associate task with user in TaskManager for tracking
             _taskManager.AssociateTaskWithUser(taskId, userId);
             
             Console.ForegroundColor = ConsoleColor.Green;
@@ -419,7 +390,6 @@ public class MatrixController : Controller
             Console.WriteLine($"");
             Console.ResetColor();
 
-            // Notify user via SignalR using Groups (works with Redis Backplane)
             var groupName = $"user_{userId}";
             await _hubContext.Clients.Group(groupName)
                 .SendAsync("TaskQueued", new { 
@@ -429,7 +399,6 @@ public class MatrixController : Controller
                     message = $"Matrix {matrix.Size}×{matrix.Size} added to processing queue"
                 });
 
-            // Return immediately - workers will process asynchronously
             return Ok(new
             {
                 success = true,
@@ -452,17 +421,14 @@ public class MatrixController : Controller
         }
     }
 
-    // API: Cancel task
     [HttpPost]
     [Route("api/matrix/cancel/{taskId}")]
     public async Task<IActionResult> CancelTask(string taskId)
     {
         try
         {
-            // Спробувати скасувати в TaskManager (для малих матриць)
             _taskManager.CancelTask(taskId);
             
-            // Також скасувати в Redis (для великих матриць)
             await _queueService.CancelTaskAsync(taskId);
             
             _logger.LogInformation($"Task {taskId} cancellation requested");
@@ -475,10 +441,8 @@ public class MatrixController : Controller
         }
     }
 
-    // Private helper method for validating matrix values
     private bool ValidateMatrixValues(double[][] coefficients, double[] rightHandSide)
     {
-        // Validate coefficients
         foreach (var row in coefficients)
         {
             foreach (var value in row)
@@ -494,7 +458,6 @@ public class MatrixController : Controller
             }
         }
 
-        // Validate right hand side
         foreach (var value in rightHandSide)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
@@ -510,7 +473,6 @@ public class MatrixController : Controller
         return true;
     }
     
-    // API: Queue matrix for async processing (NEW - uses Redis Queue + Background Workers)
     [HttpPost]
     [Route("api/matrix/queue-solve")]
     public async Task<IActionResult> QueueSolveMatrix([FromBody] StoredMatrixRequest request)
@@ -520,7 +482,6 @@ public class MatrixController : Controller
             return BadRequest(new { success = false, error = "Invalid request data" });
         }
 
-        // Get user ID
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!int.TryParse(userIdClaim, out int userId))
         {
@@ -540,7 +501,6 @@ public class MatrixController : Controller
             Console.WriteLine($"[{_serverName}] Queueing matrix task - Size: {matrix.Size}x{matrix.Size}, User: {userId}");
             Console.ResetColor();
 
-            // Create task for Redis queue
             var task = new MatrixTask
             {
                 UserId = userId,
@@ -550,12 +510,10 @@ public class MatrixController : Controller
                 Status = Models.TaskStatus.Queued
             };
 
-            // Enqueue task
             var taskId = await _queueService.EnqueueTaskAsync(task);
 
             _logger.LogInformation($"Matrix task {taskId} queued for user {userId} - Size: {matrix.Size}x{matrix.Size}");
 
-            // Notify user via SignalR that task is queued
             await _hubContext.Clients.User(userId.ToString())
                 .SendAsync("TaskQueued", new { 
                     taskId = taskId,
@@ -580,7 +538,6 @@ public class MatrixController : Controller
         }
     }
     
-    // API: Get task status from Redis
     [HttpGet]
     [Route("api/matrix/task-status/{taskId}")]
     public async Task<IActionResult> GetTaskStatus(string taskId)
@@ -616,7 +573,6 @@ public class MatrixController : Controller
         }
     }
     
-    // API: Get all user tasks from Redis
     [HttpGet]
     [Route("api/matrix/my-tasks")]
     public async Task<IActionResult> GetMyTasks()
@@ -655,7 +611,6 @@ public class MatrixController : Controller
         }
     }
     
-    // API: Get queue statistics
     [HttpGet]
     [Route("api/matrix/queue-stats")]
     [AllowAnonymous]

@@ -1,6 +1,6 @@
-﻿﻿﻿﻿@{
+﻿@{
     var title = ViewData["Title"] as string ?? "Gauss Solver";
-    var theme = Context.Request.Cookies["theme"] ?? "dark"; // default to dark
+    var theme = Context.Request.Cookies["theme"] ?? "dark";
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -13,7 +13,6 @@
     @RenderSection("HeadContent", required: false)
 </head>
 <body data-theme="@theme">
-<!-- Full-width topbar (sticky) -->
 <header class="topbar" role="banner">
     <div class="topbar-inner">
         <div class="topbar-left">
@@ -46,7 +45,6 @@
     @RenderBody()
 </div>
 
-<!-- Global full-width footer -->
 <footer class="site-footer-global" role="contentinfo">
     <div class="site-footer-inner">
         <div class="footer-left">
@@ -59,7 +57,6 @@
 </footer>
 
 <script src="~/lib/signalr/dist/browser/signalr.min.js"></script>
-<!-- Modular JavaScript files -->
 <script src="~/js/validation.js" asp-append-version="true"></script>
 <script src="~/js/signalr-progress.js" asp-append-version="true"></script>
 <script src="~/js/matrix.js" asp-append-version="true"></script>

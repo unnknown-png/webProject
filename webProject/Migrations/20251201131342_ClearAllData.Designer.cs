@@ -15,7 +15,6 @@ namespace webProject.Migrations
     [Migration("20251201131342_ClearAllData")]
     partial class ClearAllData
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

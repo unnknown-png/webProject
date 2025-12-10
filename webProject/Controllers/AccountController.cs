@@ -41,16 +41,13 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Find user in database
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
         
         if (user != null && VerifyPassword(model.Password!, user.PasswordHash))
         {
-            // Update LastLogin timestamp
             user.LastLogin = TimeZoneHelper.UtcNow;
             await _context.SaveChangesAsync();
             
-            // Create claims and sign in user using cookie authentication
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -58,24 +55,20 @@ public class AccountController : Controller
                 new Claim(ClaimTypes.Email, user.Email)
             };
 
-            // RunId claim removed for load balancing compatibility
-            // Both servers with shared Data Protection keys can now authenticate users
-
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
 
             var authProperties = new AuthenticationProperties
             {
-                IsPersistent = model.RememberMe, // true = cookie survives browser close
-                AllowRefresh = true, // Allow cookie to refresh
+                IsPersistent = model.RememberMe, 
+                AllowRefresh = true, 
                 ExpiresUtc = model.RememberMe 
                     ? DateTimeOffset.UtcNow.AddDays(30) 
-                    : DateTimeOffset.UtcNow.AddMinutes(30) // Session expires in 30 min if not RememberMe
+                    : DateTimeOffset.UtcNow.AddMinutes(30) 
             };
 
             await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
 
-            // Set theme cookie to dark so layout can apply dark theme by default after login
             Response.Cookies.Append("theme", "dark", new CookieOptions
             {
                 Expires = DateTimeOffset.UtcNow.AddYears(1),
@@ -115,7 +108,6 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Check if user already exists
         var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
         if (existingUser != null)
         {
@@ -124,7 +116,6 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Create new user
         var user = new User
         {
             Email = model.Email!,
@@ -135,7 +126,6 @@ public class AccountController : Controller
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        // Sign in the user automatically after registration
         var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -143,21 +133,19 @@ public class AccountController : Controller
             new Claim(ClaimTypes.Email, user.Email)
         };
 
-        // RunId claim removed for load balancing compatibility
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
 
         var authProperties = new AuthenticationProperties
         {
-            IsPersistent = false, // Session cookie for registration
+            IsPersistent = false, 
             AllowRefresh = true,
-            ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(30) // Short session for new users
+            ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(30) 
         };
 
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
 
-        // Set theme cookie to dark after registration as well
         Response.Cookies.Append("theme", "dark", new CookieOptions
         {
             Expires = DateTimeOffset.UtcNow.AddYears(1),
@@ -176,13 +164,11 @@ public class AccountController : Controller
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        // Remove theme cookie on logout
         Response.Cookies.Delete("theme");
         TempData["Message"] = "You have been logged out.";
         return RedirectToAction("Login");
     }
 
-    // Simple password hashing using BCrypt-style approach
     private string HashPassword(string password)
     {
         return BCrypt.Net.BCrypt.HashPassword(password);

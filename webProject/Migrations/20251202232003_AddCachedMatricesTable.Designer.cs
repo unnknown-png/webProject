@@ -15,7 +15,6 @@ namespace webProject.Migrations
     [Migration("20251202232003_AddCachedMatricesTable")]
     partial class AddCachedMatricesTable
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

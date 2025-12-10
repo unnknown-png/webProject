@@ -15,7 +15,6 @@ namespace webProject.Migrations
     [Migration("20251207173054_AddDataProtectionKeys")]
     partial class AddDataProtectionKeys
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

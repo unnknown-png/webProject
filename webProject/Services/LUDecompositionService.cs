@@ -23,7 +23,6 @@ public class LUDecompositionService : ILUDecompositionService
             {
                 int n = coefficients.Length;
 
-                // Report initialization
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 0,
@@ -33,7 +32,6 @@ public class LUDecompositionService : ILUDecompositionService
 
                 Task.Delay(50, cancellationToken).Wait(cancellationToken);
 
-                // Initialize L and U matrices
                 double[][] L = new double[n][];
                 double[][] U = new double[n][];
 
@@ -41,20 +39,17 @@ public class LUDecompositionService : ILUDecompositionService
                 {
                     L[i] = new double[n];
                     U[i] = new double[n];
-                    L[i][i] = 1.0; // L diagonal elements are 1
+                    L[i][i] = 1.0;
                 }
 
-                // Copy original matrix for decomposition
                 double[][] A = coefficients.Select(row => row.ToArray()).ToArray();
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Doolittle algorithm for LU decomposition
                 for (int i = 0; i < n; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Upper triangular matrix U
                     for (int k = i; k < n; k++)
                     {
                         double sum = 0;
@@ -65,7 +60,6 @@ public class LUDecompositionService : ILUDecompositionService
                         U[i][k] = A[i][k] - sum;
                     }
 
-                    // Lower triangular matrix L
                     for (int k = i + 1; k < n; k++)
                     {
                         double sum = 0;
@@ -87,7 +81,6 @@ public class LUDecompositionService : ILUDecompositionService
                         L[k][i] = (A[k][i] - sum) / U[i][i];
                     }
 
-                    // Report progress (0% to 50%)
                     int percent = (i + 1) * 50 / n;
                     progress?.Report(new ProgressInfo
                     {
@@ -96,7 +89,6 @@ public class LUDecompositionService : ILUDecompositionService
                         Message = $"Decomposing row {i + 1}/{n}..."
                     });
 
-                    // Small delay for visualization
                     if (n < 100 && i % 5 == 0)
                     {
                         Task.Delay(30, cancellationToken).Wait(cancellationToken);
@@ -105,7 +97,6 @@ public class LUDecompositionService : ILUDecompositionService
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Perform verification: multiply L * U
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 55,
@@ -117,7 +108,6 @@ public class LUDecompositionService : ILUDecompositionService
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Calculate determinant from U diagonal
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 75,
@@ -129,7 +119,6 @@ public class LUDecompositionService : ILUDecompositionService
 
                 Task.Delay(50, cancellationToken).Wait(cancellationToken);
 
-                // Additional heavy computations for larger matrices
                 if (n >= 50)
                 {
                     progress?.Report(new ProgressInfo
@@ -142,7 +131,6 @@ public class LUDecompositionService : ILUDecompositionService
                     PerformAdditionalComputations(L, U, cancellationToken);
                 }
 
-                // Report completion
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 100,
@@ -198,7 +186,6 @@ public class LUDecompositionService : ILUDecompositionService
     {
         int n = L.Length;
 
-        // Perform multiple matrix multiplications for heavy computation
         for (int iteration = 0; iteration < 10; iteration++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -212,7 +199,6 @@ public class LUDecompositionService : ILUDecompositionService
                     {
                         sum += L[i][k] * U[k][j];
                     }
-                    // Verification step (just computing, not storing)
                     _ = sum;
                 }
             }
@@ -241,7 +227,6 @@ public class LUDecompositionService : ILUDecompositionService
     {
         int n = L.Length;
 
-        // Calculate Frobenius norms multiple times
         for (int iteration = 0; iteration < 15; iteration++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -260,7 +245,6 @@ public class LUDecompositionService : ILUDecompositionService
 
             double frobeniusL = Math.Sqrt(normL);
             double frobeniusU = Math.Sqrt(normU);
-            // Use the values to avoid warnings
             _ = frobeniusL;
             _ = frobeniusU;
 
@@ -270,7 +254,6 @@ public class LUDecompositionService : ILUDecompositionService
             }
         }
 
-        // Additional matrix products for heavy computation
         for (int iteration = 0; iteration < 5; iteration++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -284,7 +267,6 @@ public class LUDecompositionService : ILUDecompositionService
                     {
                         sum += U[i][k] * L[k][j];
                     }
-                    // Use sum to avoid warning
                     _ = sum;
                 }
             }

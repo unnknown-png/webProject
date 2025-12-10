@@ -1,12 +1,9 @@
-// SIGNALR AND PROGRESS MODULE
-// Handles SignalR connection and progress tracking
 
 const SignalRProgressModule = (() => {
     let connection = null;
     let currentTaskId = null;
     let isCancelled = false;
     
-    // DOM references
     let progressBar = null;
     let progressText = null;
     let progressPercent = null;
@@ -61,7 +58,6 @@ const SignalRProgressModule = (() => {
             progressStage.textContent = stageLabels[stage] || stage;
         }
 
-        // Show/hide cancel button
         if (cancelBtn) {
             if (percent > 0 && percent < 100) {
                 cancelBtn.style.display = 'inline-block';
@@ -86,10 +82,8 @@ const SignalRProgressModule = (() => {
     async function cancelTask() {
         if (!currentTaskId) return false;
         
-        // Set cancelled flag immediately to prevent "Completed" from overwriting
         isCancelled = true;
         
-        // Get current progress percentage before cancelling
         const currentPercent = progressBar ? 
             parseInt(progressBar.style.width) || 0 : 0;
         
@@ -99,11 +93,9 @@ const SignalRProgressModule = (() => {
             });
             const data = await res.json();
             if (data.success) {
-                // Keep current percentage, only change status to Cancelled
                 setProgress(currentPercent, 'Cancelled', 'Cancelled');
                 if (cancelBtn) cancelBtn.disabled = true;
                 
-                // Clear progress and reset UI after a moment (don't change 3000 - user requirement)
                 setTimeout(() => {
                     clearProgress();
                     if (cancelBtn) {
@@ -118,7 +110,6 @@ const SignalRProgressModule = (() => {
             return false;
         } catch (err) {
             console.error('Cancel error:', err);
-            // Still clear on error
             setTimeout(() => {
                 clearProgress();
                 if (cancelBtn) cancelBtn.disabled = false;
@@ -144,7 +135,6 @@ const SignalRProgressModule = (() => {
             cancelBtn.style.display = 'none';
         }
         
-        // Reload history to show error/cancellation
         setTimeout(() => {
             clearProgress();
             if (typeof HistoryModule !== 'undefined' && HistoryModule.loadHistory) {
@@ -154,15 +144,12 @@ const SignalRProgressModule = (() => {
     }
 
     async function finalizeSuccess() {
-        // Check if task was cancelled
         if (isCancelled) {
             return false; // Cancelled, don't continue
         }
         
-        // Wait for SignalR to receive 100% progress
         await new Promise(resolve => setTimeout(resolve, 800));
         
-        // Force 100% progress before showing result
         setProgress(100, 'Completed', 'Completed');
         await new Promise(resolve => setTimeout(resolve, 500));
         

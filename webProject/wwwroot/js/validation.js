@@ -1,13 +1,9 @@
-// VALIDATION MODULE
-// Contains validation constants and functions for matrix input
 
 const ValidationModule = (() => {
-    // VALIDATION CONSTANTS
     const MIN_MATRIX_SIZE = 2;
     const MAX_MATRIX_SIZE = 4000;
     const MAX_MATRIX_VALUE = 1e10;
 
-    // DOM references
     let sizeError = null;
     let resultEl = null;
 
@@ -46,7 +42,6 @@ const ValidationModule = (() => {
     }
 
     function validateMatrixValues(coefficients, rightHandSide) {
-        // Check coefficients
         for (let i = 0; i < coefficients.length; i++) {
             for (let j = 0; j < coefficients[i].length; j++) {
                 const value = coefficients[i][j];
@@ -63,7 +58,6 @@ const ValidationModule = (() => {
             }
         }
 
-        // Check right hand side
         for (let i = 0; i < rightHandSide.length; i++) {
             const value = rightHandSide[i];
             
@@ -82,7 +76,6 @@ const ValidationModule = (() => {
     }
 
     function validateSizeInput(inputValue, sizeInput, onValidSize) {
-        // Check if input is valid number
         if (isNaN(inputValue) || inputValue < MIN_MATRIX_SIZE) {
             const newSize = MIN_MATRIX_SIZE;
             sizeInput.value = MIN_MATRIX_SIZE;

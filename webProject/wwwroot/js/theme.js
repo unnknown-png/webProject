@@ -1,5 +1,3 @@
-// THEME MODULE
-// Handles theme switching between dark and light modes
 
 const ThemeModule = (() => {
     const THEME_KEY = 'gauss_theme';
@@ -35,7 +33,6 @@ const ThemeModule = (() => {
     };
 })();
 
-// PASSWORD TOGGLE (for Login/Register pages)
 function togglePassword(inputId, button) {
     const input = document.getElementById(inputId);
     

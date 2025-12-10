@@ -14,7 +14,6 @@ namespace webProject.Services
         private readonly IHubContext<ProgressHub> _hubContext;
         private int _workerNumber;
         
-        // JSON options to handle Infinity and NaN values
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
@@ -47,12 +46,10 @@ namespace webProject.Services
                     var combinedService = scope.ServiceProvider.GetRequiredService<ICombinedMatrixService>();
                     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                     
-                    // Try to dequeue a task
                     var task = await queueService.DequeueTaskAsync();
                     
                     if (task == null)
                     {
-                        // No tasks in queue, wait a bit
                         await Task.Delay(1000, stoppingToken);
                         continue;
                     }
@@ -68,7 +65,6 @@ namespace webProject.Services
                     Console.ResetColor();
                     _logger.LogInformation($"[WORKER-{_workerNumber}] Processing task {task.TaskId} - Size: {task.Size}x{task.Size}");
                     
-                    // Notify user that processing started via SignalR Groups
                     var groupName = $"user_{task.UserId}";
                     await _hubContext.Clients.Group(groupName)
                         .SendAsync("TaskStatusChanged", new { 
@@ -82,14 +78,12 @@ namespace webProject.Services
                     
                     try
                     {
-                        // Перевірити чи задача не була скасована ще до початку обробки
                         if (await queueService.IsTaskCancelledAsync(task.TaskId))
                         {
                             Console.ForegroundColor = ConsoleColor.Yellow;
                             Console.WriteLine($"[WORKER-{_workerNumber:D2}] Task {task.TaskId} was CANCELLED before processing started");
                             Console.ResetColor();
                             
-                            // Повідомити клієнта
                             await _hubContext.Clients.Group(groupName)
                                 .SendAsync("TaskFailed", new { 
                                     taskId = task.TaskId,
@@ -99,10 +93,9 @@ namespace webProject.Services
                                     message = $"Matrix {task.Size}x{task.Size} calculation was cancelled"
                                 }, stoppingToken);
                             
-                            continue; // Перейти до наступного завдання
+                            continue;
                         }
                         
-                        // Get matrix from Redis cache using MatrixId
                         var matrixData = await queueService.GetMatrixAsync(task.MatrixId);
                         
                         if (matrixData == null)
@@ -110,33 +103,29 @@ namespace webProject.Services
                             throw new Exception($"Matrix {task.MatrixId} not found in Redis cache");
                         }
                         
-                        // Створити CancellationTokenSource який буде перевіряти Redis
                         using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                         
-                        // Запустити фоновий таймер для перевірки скасування
                         var cancellationCheckTask = Task.Run(async () =>
                         {
                             while (!taskCts.Token.IsCancellationRequested)
                             {
-                                await Task.Delay(500, stoppingToken); // Перевіряти кожні 500ms
+                                await Task.Delay(500, stoppingToken);
                                 
                                 if (await queueService.IsTaskCancelledAsync(task.TaskId))
                                 {
                                     Console.ForegroundColor = ConsoleColor.Yellow;
                                     Console.WriteLine($"[WORKER-{_workerNumber:D2}] 🛑 CANCELLATION DETECTED for task {task.TaskId}");
                                     Console.ResetColor();
-                                    taskCts.Cancel(); // Скасувати обчислення
+                                    taskCts.Cancel();
                                     break;
                                 }
                             }
                         }, stoppingToken);
                         
-                        // Create progress reporter for real-time updates via SignalR
                         var progress = new Progress<ProgressInfo>(async info =>
                         {
                             try
                             {
-                                // Send progress update to user's SignalR group for UI progress bar
                                 await _hubContext.Clients.Group(groupName)
                                     .SendAsync("ReceiveProgress", task.TaskId, info.Percent, info.Stage, info.Message);
                             }
@@ -146,24 +135,20 @@ namespace webProject.Services
                             }
                         });
                         
-                        // Solve the matrix with progress reporting
                         var result = await combinedService.SolveAndDecomposeAsync(
                             matrixData.Coefficients, 
                             matrixData.RightHandSide,
-                            progress,  // ← Pass progress callback!
-                            cancellationToken: taskCts.Token  // ← Використовуємо токен який перевіряє Redis!
+                            progress,
+                            cancellationToken: taskCts.Token
                         );
                         
                         var executionTime = (DateTime.UtcNow - startTime).TotalSeconds;
                         
-                        // ВАЖЛИВО: Перевірити ще раз чи задача не була скасована
-                        // Навіть якщо обчислення завершилось, користувач міг скасувати під кінець
                         if (await queueService.IsTaskCancelledAsync(task.TaskId) || taskCts.Token.IsCancellationRequested)
                         {
                             throw new OperationCanceledException("Task was cancelled by user");
                         }
                         
-                        // Save result to database
                         var history = new CalculationHistory
                         {
                             UserId = task.UserId,
@@ -178,7 +163,6 @@ namespace webProject.Services
                         dbContext.CalculationHistories.Add(history);
                         await dbContext.SaveChangesAsync(stoppingToken);
                         
-                        // Serialize result with support for Infinity/NaN
                         var resultJson = JsonSerializer.Serialize(new
                         {
                             solution = result.GaussianSolution.Solution,
@@ -187,10 +171,8 @@ namespace webProject.Services
                             historyId = history.Id
                         }, JsonOptions);
                         
-                        // Mark task as completed in Redis
                         await queueService.CompleteTaskAsync(task.TaskId, resultJson, executionTime);
                         
-                        // Notify user via SignalR using Groups (works with Redis Backplane)
                         Console.ForegroundColor = ConsoleColor.Blue;
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] SENDING SIGNALR NOTIFICATION");
                         Console.WriteLine($"[WORKER-{_workerNumber:D2}] Group Name: {groupName}");
@@ -221,12 +203,10 @@ namespace webProject.Services
                     }
                     catch (OperationCanceledException)
                     {
-                        // Task was cancelled by user
                         var executionTime = (DateTime.UtcNow - startTime).TotalSeconds;
                         
                         await queueService.UpdateTaskStatusAsync(task.TaskId, Models.TaskStatus.Cancelled, "Task was cancelled by user");
                         
-                        // Save cancellation to database
                         var history = new CalculationHistory
                         {
                             UserId = task.UserId,
@@ -241,7 +221,6 @@ namespace webProject.Services
                         dbContext.CalculationHistories.Add(history);
                         await dbContext.SaveChangesAsync(stoppingToken);
                         
-                        // Notify user via SignalR
                         await _hubContext.Clients.Group(groupName)
                             .SendAsync("TaskFailed", new { 
                                 taskId = task.TaskId,
@@ -263,10 +242,8 @@ namespace webProject.Services
                     }
                     catch (Exception ex)
                     {
-                        // Mark task as failed
                         await queueService.UpdateTaskStatusAsync(task.TaskId, Models.TaskStatus.Failed, ex.Message);
                         
-                        // Save failed attempt to database
                         var history = new CalculationHistory
                         {
                             UserId = task.UserId,
@@ -281,7 +258,6 @@ namespace webProject.Services
                         dbContext.CalculationHistories.Add(history);
                         await dbContext.SaveChangesAsync(stoppingToken);
                         
-                        // Notify user via SignalR using Groups
                         await _hubContext.Clients.Group(groupName)
                             .SendAsync("TaskFailed", new { 
                                 taskId = task.TaskId,
@@ -305,7 +281,7 @@ namespace webProject.Services
                 catch (Exception ex)
                 {
                     _logger.LogError($"[WORKER-{_workerNumber}] Error in worker loop: {ex.Message}");
-                    await Task.Delay(5000, stoppingToken); // Wait 5 seconds on error
+                    await Task.Delay(5000, stoppingToken);
                 }
             }
             

@@ -1,5 +1,3 @@
-// TASK MANAGER MODULE
-// Manages multiple concurrent matrix calculation tasks (max 3)
 
 const TaskManagerModule = (() => {
     const MAX_CONCURRENT_TASKS = 3;
@@ -23,49 +21,40 @@ const TaskManagerModule = (() => {
     function setSignalRConnection(connection) {
         signalRConnection = connection;
         
-        // Listen to SignalR progress updates
         if (signalRConnection) {
             signalRConnection.on("ReceiveProgress", (taskId, percent, stage, message) => {
                 updateTaskProgress(taskId, percent, message, stage);
             });
             
-            // Task queued - worker will pick it up
             signalRConnection.on("TaskQueued", (data) => {
                 console.log('Task queued:', data);
                 updateTaskProgress(data.taskId, 0, data.message || 'Queued for processing', 'Queued');
             });
             
-            // Task status changed (e.g., worker started processing)
             signalRConnection.on("TaskStatusChanged", (data) => {
                 console.log('Task status changed:', data);
                 updateTaskProgress(data.taskId, 5, data.message || 'Processing started', 'Processing');
             });
             
-            // Task completed successfully
             signalRConnection.on("TaskCompleted", (data) => {
                 console.log('Task completed:', data);
                 
-                // Update progress bar to 100%
                 updateTaskProgress(data.taskId, 100, data.message || 'Completed', 'Completed');
                 
-                // Reload history after short delay
                 if (typeof HistoryModule !== 'undefined') {
                     setTimeout(() => HistoryModule.loadHistory(), 500);
                 }
                 
-                // Show simple success message
                 if (typeof ValidationModule !== 'undefined') {
                     const msg = `✓ Matrix ${data.size}×${data.size} solved successfully in ${data.executionTime?.toFixed(2)}s`;
                     ValidationModule.showResult(msg);
                 }
             });
             
-            // Task failed
             signalRConnection.on("TaskFailed", (data) => {
                 console.log('Task failed:', data);
                 updateTaskProgress(data.taskId, 0, data.message || data.error || 'Failed', 'Failed');
                 
-                // Show error
                 if (typeof ValidationModule !== 'undefined') {
                     ValidationModule.showResult(`Error: ${data.error || 'Task failed'}`, true);
                 }
@@ -149,13 +138,11 @@ const TaskManagerModule = (() => {
         tasksContainer.appendChild(taskElement);
         task.element = taskElement;
 
-        // Add cancel button handler
         const cancelBtn = taskElement.querySelector(`[data-task-cancel="${task.id}"]`);
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => cancelTask(task.id));
         }
 
-        // Start elapsed time updater
         task.timeInterval = setInterval(() => {
             const timeElement = taskElement.querySelector('[data-task-time]');
             if (timeElement) {
@@ -186,7 +173,6 @@ const TaskManagerModule = (() => {
             task.status = 'running';
         }
 
-        // Update DOM
         if (task.element) {
             const bar = task.element.querySelector(`[data-task-bar="${taskId}"]`);
             const percentText = task.element.querySelector(`[data-task-percent="${taskId}"]`);
@@ -211,7 +197,6 @@ const TaskManagerModule = (() => {
                 stageText.textContent = stageLabels[stage] || stage;
             }
 
-            // Hide cancel button when task is completed/failed
             if (cancelBtn) {
                 if (percent >= 100 || percent === 0 || stage === 'Cancelled' || stage === 'Failed') {
                     cancelBtn.classList.add('hidden');
@@ -220,34 +205,28 @@ const TaskManagerModule = (() => {
                 }
             }
 
-            // Mark as completed visually
             if (task.status === 'completed') {
                 task.element.classList.add('task-completed');
                 
-                // Stop time updater
                 if (task.timeInterval) {
                     clearInterval(task.timeInterval);
                     task.timeInterval = null;
                 }
                 
-                // Remove after 2 seconds and hide result
                 setTimeout(() => {
                     removeTask(taskId);
                     hideResult();
                 }, 2000);
             }
             
-            // Also remove cancelled/failed tasks after delay
             if (stage === 'Cancelled' || stage === 'Failed') {
                 task.status = stage === 'Cancelled' ? 'cancelled' : 'failed';
                 
-                // Stop time updater
                 if (task.timeInterval) {
                     clearInterval(task.timeInterval);
                     task.timeInterval = null;
                 }
                 
-                // Remove after 2 seconds and hide result
                 setTimeout(() => {
                     removeTask(taskId);
                     hideResult();
@@ -283,17 +262,14 @@ const TaskManagerModule = (() => {
                     cancelBtn.classList.add('hidden');
                 }
                 
-                // Stop time updater
                 if (task.timeInterval) {
                     clearInterval(task.timeInterval);
                 }
                 
-                // Reload history immediately
                 if (typeof HistoryModule !== 'undefined' && HistoryModule.loadHistory) {
                     HistoryModule.loadHistory();
                 }
                 
-                // Remove after 2 seconds and hide result
                 setTimeout(() => {
                     removeTask(taskId);
                     hideResult();
@@ -312,12 +288,10 @@ const TaskManagerModule = (() => {
         const task = tasks.get(taskId);
         if (!task) return;
 
-        // Stop time updater if still running
         if (task.timeInterval) {
             clearInterval(task.timeInterval);
         }
 
-        // Remove DOM element with animation
         if (task.element) {
             task.element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
             task.element.style.opacity = '0';
@@ -328,7 +302,6 @@ const TaskManagerModule = (() => {
             }, 300);
         }
 
-        // Remove from map
         tasks.delete(taskId);
     }
 
@@ -344,17 +317,14 @@ const TaskManagerModule = (() => {
             cancelBtn.classList.add('hidden');
         }
         
-        // Stop time updater
         if (task.timeInterval) {
             clearInterval(task.timeInterval);
         }
         
-        // Reload history immediately
         if (typeof HistoryModule !== 'undefined' && HistoryModule.loadHistory) {
             HistoryModule.loadHistory();
         }
         
-        // Remove after 2 seconds and hide result
         setTimeout(() => {
             removeTask(taskId);
             hideResult();
@@ -370,7 +340,6 @@ const TaskManagerModule = (() => {
     }
     
     function clearAll() {
-        // Remove all tasks
         tasks.forEach((task, taskId) => {
             if (task.timeInterval) {
                 clearInterval(task.timeInterval);
@@ -381,7 +350,6 @@ const TaskManagerModule = (() => {
         });
         tasks.clear();
         
-        // Hide result
         hideResult();
     }
 

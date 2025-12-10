@@ -1,8 +1,5 @@
-// GAUSS SOLVER - Main Application
-// Coordinates all modules and handles user interactions
 
 (() => {
-    // DOM ELEMENTS
     const $ = id => document.getElementById(id);
     const sizeInput = $('sizeInput');
     const sizeError = $('sizeError');
@@ -11,7 +8,6 @@
     const resultEl = $('result');
     const historyEl = $('history');
 
-    // Initialize all modules
     ValidationModule.init(sizeError, resultEl);
     
     const initialSize = Math.max(parseInt(sizeInput?.value, 10) || 5, 2);
@@ -19,10 +15,8 @@
     HistoryModule.init(historyEl);
     ThemeModule.init($('themeToggle'));
     
-    // Initialize TaskManager immediately (before SignalR)
     TaskManagerModule.init(tasksContainer, null);
 
-    // Initialize SignalR and TaskManager
     let signalRConnection = null;
     
     if (document.readyState === 'loading') {
@@ -46,7 +40,6 @@
         signalRConnection.start()
             .then(() => {
                 console.log('SignalR connected');
-                // Set SignalR connection after successful connection
                 TaskManagerModule.setSignalRConnection(signalRConnection);
             })
             .catch(err => {
@@ -55,7 +48,6 @@
             });
     }
 
-    // SIZE INPUT HANDLERS
     if (sizeInput) {
         sizeInput.addEventListener('change', () => {
             const inputValue = parseInt(sizeInput.value, 10);
@@ -71,7 +63,6 @@
         });
     }
 
-    // RANDOM GENERATION
     $('rand').addEventListener('click', async () => {
         resultEl.hidden = true;
         
@@ -79,7 +70,6 @@
             return;
         }
         
-        // Simple progress for generation (not tracked as a task)
         try {
             const res = await fetch('/api/matrix/generate', {
                 method: 'POST',
@@ -108,16 +98,13 @@
         }
     });
 
-    // CLEAR BUTTON
     $('clear').addEventListener('click', () => {
         MatrixModule.clearMatrix();
         resultEl.hidden = true;
         
-        // Clear all active tasks and results
         TaskManagerModule.clearAll();
     });
 
-    // SOLVE BUTTON
     $('solve').addEventListener('click', async () => {
         console.log('🔵 Solve button clicked');
         resultEl.hidden = true;
@@ -129,7 +116,6 @@
         
         console.log('✅ Matrix size valid:', MatrixModule.getSize());
         
-        // Check if we can create a new task
         if (!TaskManagerModule.canCreateTask()) {
             console.log('❌ Cannot create task - max limit reached');
             ValidationModule.showResult('Maximum 3 concurrent tasks allowed. Please wait for a task to complete or cancel one.', true);
@@ -138,7 +124,6 @@
         
         console.log('✅ Can create new task');
         
-        // Create task in TaskManager
         const taskResult = TaskManagerModule.createTask(MatrixModule.getSize());
         if (!taskResult.success) {
             console.log('❌ Task creation failed:', taskResult.error);
@@ -153,7 +138,6 @@
             let requestBody, endpoint;
             
             if (MatrixModule.getSize() < 10) {
-                // Small matrix - solve directly
                 const { rows, rhs } = MatrixModule.readMatrix();
                 
                 if (!ValidationModule.validateMatrixValues(rows, rhs)) {
@@ -169,7 +153,6 @@
                 };
                 console.log('📤 Sending small matrix to:', endpoint);
             } else {
-                // Large matrix - solve stored
                 const matrixId = MatrixModule.getMatrixId();
                 console.log('🔍 Matrix ID:', matrixId);
                 
@@ -214,15 +197,11 @@
                 return;
             }
             
-            // Check if task was queued for background processing
             if (data.status === 'queued' || data.status === 'Queued') {
                 console.log('✅ Task queued successfully');
-                // Task is queued - worker will process it
-                // Update task manager to show queued state
                 TaskManagerModule.updateTaskProgress(taskId, 0, data.message || 'Queued for processing', 'Queued');
                 ValidationModule.showResult(`Task queued successfully. Matrix ${MatrixModule.getSize()}×${MatrixModule.getSize()} will be processed by a worker.`);
                 
-                // Clear matrix ID since it's queued
                 if (MatrixModule.getSize() >= 10) {
                     MatrixModule.clearMatrixId();
                 }
@@ -231,8 +210,6 @@
             }
             
             if (data.success) {
-                // Task completed successfully immediately (small matrices)
-                // Show results
                 if (MatrixModule.getSize() < 10) {
                     const resultHTML = ResultRenderer.renderSmallMatrixResult(data);
                     ValidationModule.showResult(resultHTML);
@@ -243,7 +220,6 @@
                     MatrixModule.showSummary(MatrixModule.getSize(), `Solved! Check history.`);
                 }
                 
-                // Reload history
                 HistoryModule.loadHistory();
             } else {
                 const errorMsg = data.error || 'Calculation failed';
@@ -258,17 +234,13 @@
         }
     });
 
-    // HISTORY CONTROLS
     $('clearHistory').addEventListener('click', () => HistoryModule.clearHistory());
     $('export').addEventListener('click', () => HistoryModule.exportHistory());
 
-    // THEME TOGGLE
     $('themeToggle').addEventListener('click', () => ThemeModule.toggleTheme());
 
-    // NAVIGATION
     NavigationModule.setupNavigation();
 
-    // INITIALIZATION
     const size = MatrixModule.getSize();
     size < 10 ? MatrixModule.buildMatrix(size) : MatrixModule.showSummary(size);
     HistoryModule.loadHistory();

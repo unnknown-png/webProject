@@ -1,9 +1,6 @@
-// RESULT RENDERER MODULE
-// Handles rendering of calculation results with LU decomposition
 
 const ResultRenderer = (() => {
     
-    // Render result for small matrices (< 10)
     function renderSmallMatrixResult(data) {
         if (!data.success) {
             return `<div class="result-error"><strong>✗ Error:</strong> ${data.error}</div>`;
@@ -11,16 +8,13 @@ const ResultRenderer = (() => {
 
         let html = `<div class="result-success">`;
         
-        // Solution
         html += `<div class="solution-display">`;
         html += `<strong>✓ Solution:</strong>`;
         html += `<div class="solution-values">[${data.solution.map(v => v.toFixed(6)).join(', ')}]</div>`;
         html += `</div>`;
         
-        // Computation info
         html += renderComputationInfo(data);
         
-        // LU decomposition
         if (data.luDecomposition && data.luDecomposition.lMatrix && data.luDecomposition.uMatrix) {
             html += renderLUDecomposition(data.luDecomposition);
         }
@@ -29,7 +23,6 @@ const ResultRenderer = (() => {
         return html;
     }
 
-    // Render result for large matrices (>= 10)
     function renderLargeMatrixResult(data) {
         if (!data.success) {
             return `<div class="result-error"><strong>✗ Error:</strong> ${data.error}</div>`;
@@ -40,14 +33,12 @@ const ResultRenderer = (() => {
         html += `<strong>✓ ${data.solutionSummary || 'Solution computed successfully'}</strong>`;
         html += `</div>`;
         
-        // Computation info with LU note
         html += renderComputationInfo(data, true);
         
         html += `</div>`;
         return html;
     }
 
-    // Render computation information
     function renderComputationInfo(data, includeLuNote = false) {
         let html = `<div class="computation-info">`;
         
@@ -69,23 +60,19 @@ const ResultRenderer = (() => {
         return html;
     }
 
-    // Render LU decomposition matrices
     function renderLUDecomposition(luData) {
         let html = `<div class="lu-decomposition-section">`;
         html += `<strong class="lu-title">LU Decomposition:</strong>`;
         html += `<div class="lu-matrices-container">`;
         
-        // L Matrix
         html += renderMatrix(luData.lMatrix, 'L Matrix', 'l-label');
         
-        // U Matrix
         html += renderMatrix(luData.uMatrix, 'U Matrix', 'u-label');
         
         html += `</div></div>`;
         return html;
     }
 
-    // Render single matrix (L or U)
     function renderMatrix(matrixData, label, labelClass) {
         let html = `<div class="lu-matrix-wrapper">`;
         html += `<strong class="matrix-label ${labelClass}">${label}</strong>`;
@@ -103,7 +90,6 @@ const ResultRenderer = (() => {
         return html;
     }
 
-    // Public API
     return {
         renderSmallMatrixResult,
         renderLargeMatrixResult

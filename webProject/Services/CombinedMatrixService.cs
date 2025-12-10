@@ -46,17 +46,14 @@ public class CombinedMatrixService : ICombinedMatrixService
 
             await Task.Delay(100, cancellationToken);
 
-            // Create copies for parallel operations
             var matrixForGauss = coefficients.Select(row => row.ToArray()).ToArray();
             var vectorForGauss = rightHandSide.ToArray();
             var matrixForLU = coefficients.Select(row => row.ToArray()).ToArray();
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Progress reporters for both operations
             var gaussProgress = new Progress<ProgressInfo>(info =>
             {
-                // Report Gaussian progress (0-50%)
                 var adjustedInfo = new ProgressInfo
                 {
                     Percent = info.Percent / 2,
@@ -68,7 +65,6 @@ public class CombinedMatrixService : ICombinedMatrixService
 
             var luProgress = new Progress<ProgressInfo>(info =>
             {
-                // Report LU progress (50-100%)
                 var adjustedInfo = new ProgressInfo
                 {
                     Percent = 50 + info.Percent / 2,
@@ -78,7 +74,6 @@ public class CombinedMatrixService : ICombinedMatrixService
                 progress?.Report(adjustedInfo);
             });
 
-            // Run both operations in parallel
             var gaussTask = _gaussService.SolveAsync(
                 matrixForGauss, 
                 vectorForGauss, 
@@ -90,16 +85,13 @@ public class CombinedMatrixService : ICombinedMatrixService
                 luProgress, 
                 cancellationToken);
 
-            // Wait for both to complete
             await Task.WhenAll(gaussTask, luTask);
 
-            // Tasks are already completed, just get results
             var gaussianSolution = gaussTask.Result;
             var luDecomposition = luTask.Result;
 
             stopwatch.Stop();
 
-            // Check if both succeeded
             bool overallSuccess = gaussianSolution.Success && luDecomposition.Success;
             string? errorMessage = null;
 

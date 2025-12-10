@@ -4,10 +4,8 @@
 
 namespace webProject.Migrations
 {
-    /// <inheritdoc />
     public partial class AddDatabaseOptimizations : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<string>(
@@ -41,7 +39,6 @@ namespace webProject.Migrations
                 sql: "\"Size\" > 0");
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(

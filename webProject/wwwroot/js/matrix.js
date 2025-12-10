@@ -1,5 +1,3 @@
-// MATRIX MODULE
-// Handles matrix UI, generation, and solving
 
 const MatrixModule = (() => {
     let matrixWrap = null;
@@ -31,13 +29,11 @@ const MatrixModule = (() => {
         matrixId = null;
     }
 
-    // Build matrix UI for small matrices
     function buildMatrix(n) {
         matrixWrap.innerHTML = '';
         const inner = document.createElement('div');
         inner.className = 'matrix-inner';
 
-        // Coefficients table
         const coeffTable = document.createElement('table');
         coeffTable.className = 'matrix coeff-table';
         for (let i = 0; i < n; i++) {
@@ -57,7 +53,6 @@ const MatrixModule = (() => {
             coeffTable.appendChild(tr);
         }
 
-        // RHS column
         const rhsCol = document.createElement('div');
         rhsCol.className = 'rhs-column';
         for (let i = 0; i < n; i++) {
@@ -81,12 +76,10 @@ const MatrixModule = (() => {
         matrixWrap.appendChild(inner);
     }
 
-    // Show summary for large matrices
     function showSummary(n, msg) {
         matrixWrap.innerHTML = `<div class="matrix-summary">${msg || `Matrix ${n}×${n} - too large to display.`}</div>`;
     }
 
-    // Read matrix values from UI
     function readMatrix() {
         const rows = [], rhs = [];
         for (let i = 0; i < size; i++) {
@@ -102,7 +95,6 @@ const MatrixModule = (() => {
         return { rows, rhs };
     }
 
-    // Fill matrix with random values
     function fillMatrixWithData(coefficients, rightHandSide) {
         for (let i = 0; i < size; i++) {
             for (let j = 0; j < size; j++) {
@@ -114,7 +106,6 @@ const MatrixModule = (() => {
         }
     }
 
-    // Clear all inputs
     function clearMatrix() {
         if (size < 10) {
             matrixWrap.querySelectorAll('input').forEach(i => i.value = '');
@@ -124,13 +115,11 @@ const MatrixModule = (() => {
         }
     }
 
-    // Update matrix display based on size
     function updateMatrixDisplay() {
         matrixId = null;
         size < 10 ? buildMatrix(size) : showSummary(size);
     }
 
-    // Generate random matrix
     async function generateRandom(progressCallback, resultCallback) {
         try {
             if (progressCallback) progressCallback(0, 'Generating...');
@@ -164,11 +153,9 @@ const MatrixModule = (() => {
         }
     }
 
-    // Solve matrix
     async function solveMatrix(taskId, progressModule, validationModule) {
         try {
             if (size < 10) {
-                // Small matrix - solve directly
                 const { rows, rhs } = readMatrix();
                 
                 if (!validationModule.validateMatrixValues(rows, rhs)) {
@@ -192,14 +179,12 @@ const MatrixModule = (() => {
                 
                 const data = await res.json();
                 
-                // Check for errors
                 if (!res.ok) {
                     return { success: false, error: true, data };
                 }
                 
                 return { success: true, data, isSmall: true };
             } else {
-                // Large matrix - queue for async processing via Redis
                 if (!matrixId) {
                     return { success: false, needsGeneration: true };
                 }
@@ -218,7 +203,6 @@ const MatrixModule = (() => {
                 
                 const data = await res.json();
                 
-                // Check for errors
                 if (!res.ok) {
                     return { success: false, error: true, data };
                 }

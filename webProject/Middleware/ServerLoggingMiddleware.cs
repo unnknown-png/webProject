@@ -18,7 +18,6 @@ public class ServerLoggingMiddleware
         var path = context.Request.Path.Value ?? "";
         var method = context.Request.Method;
 
-        // Log only important requests (API calls, not static files)
         if (path.StartsWith("/api/") || path.StartsWith("/progressHub"))
         {
             Console.ForegroundColor = ConsoleColor.Cyan;

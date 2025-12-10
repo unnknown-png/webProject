@@ -15,7 +15,6 @@ namespace webProject.Migrations
     [Migration("20251128133518_AddLastLoginToUsers")]
     partial class AddLastLoginToUsers
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

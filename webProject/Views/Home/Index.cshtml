@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿@{
+﻿@{
 	ViewData["Title"] = "Home";
 }
 
@@ -9,7 +9,6 @@
 		</div>
 	</header>
 
-	<!-- Controls moved here: full-width container above main -->
 	<div class="controls" role="region" aria-label="Контролі матриці">
 		<div class="controls-left">
 			<label for="sizeInput" class="hint">Matrix size (2-4000)</label>
@@ -29,9 +28,7 @@
 	</div>
 
 	<main class="main" role="main">
-		<!-- Queue tasks status -->
 		<div id="queue-tasks-container" class="queue-tasks-container" style="display: none;">
-			<!-- Queue tasks will be displayed here -->
 		</div>
 
 		<section id="matrix-section" class="panel matrix-panel" aria-labelledby="matrix-title">
@@ -41,12 +38,9 @@
 			</div>
 
 		<div class="matrix-wrap" id="matrixWrap" aria-live="polite">
-			<!-- matrix will be injected here -->
 		</div>
 
-		<!-- Multiple tasks status container -->
 		<div id="tasksContainer" class="tasks-container">
-			<!-- Task status bars will be dynamically added here -->
 		</div>
 
 		<div id="result" class="result" hidden></div>
@@ -55,14 +49,12 @@
 	</main>
 </div>
 
-<!-- History container (separate) -->
 <div class="wrap" id="history-wrap" role="application">
 	<header class="site-header" role="banner" aria-hidden="false">
 		<div>
 			<h2>History</h2>
 		</div>
 	</header>
-	<!-- History moved below main so it can be scrolled independently -->
 	<section id="history-section" class="history-container panel" aria-labelledby="history-title">
 		<div class="history-list" id="history"></div>
 

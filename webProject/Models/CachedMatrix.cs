@@ -1,10 +1,7 @@
-using Microsoft.EntityFrameworkCore;
-using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace webProject.Models;
 
-// Model for storing generated matrices in database (for load balancing)
 public class CachedMatrix
 {
     [Key]
@@ -12,7 +9,6 @@ public class CachedMatrix
     
     public int Size { get; set; }
     
-    // Serialize matrix data as JSON
     public string CoefficientsJson { get; set; } = string.Empty;
     public string RightHandSideJson { get; set; } = string.Empty;
     

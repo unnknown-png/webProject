@@ -56,12 +56,10 @@ public class TaskManager : ITaskManager
             cts.Dispose();
         }
         
-        // Clean up user association
         if (_taskUserMap.TryRemove(taskId, out var userId))
         {
             if (_userTasks.TryGetValue(userId, out var userTaskList))
             {
-                // Remove task from user's list
                 var updatedList = new ConcurrentBag<string>(userTaskList.Where(t => t != taskId));
                 _userTasks.TryUpdate(userId, updatedList, userTaskList);
             }
@@ -72,7 +70,6 @@ public class TaskManager : ITaskManager
     {
         if (_userTasks.TryGetValue(userId, out var tasks))
         {
-            // Only count tasks that still exist in _tasks dictionary
             return tasks.Count(taskId => _tasks.ContainsKey(taskId));
         }
         return 0;

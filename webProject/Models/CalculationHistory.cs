@@ -17,10 +17,10 @@ public class CalculationHistory
     public int Size { get; set; }
     
     [Required]
-    public string MatrixData { get; set; } = string.Empty; // JSON serialized matrix
+    public string MatrixData { get; set; } = string.Empty; 
     
     [Required]
-    public string Solution { get; set; } = string.Empty; // JSON serialized solution
+    public string Solution { get; set; } = string.Empty; 
     
     public bool Success { get; set; }
     

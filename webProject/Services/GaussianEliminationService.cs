@@ -22,14 +22,12 @@ public class GaussianEliminationService : IGaussianEliminationService
         IProgress<ProgressInfo>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        // Execute on thread pool to avoid blocking
         return await Task.Run(async () =>
         {
             try
             {
                 var n = coefficients.Length;
                 
-                // Report initialization
                 progress?.Report(new ProgressInfo
                 {
                     Percent = MatrixConstants.ProgressInitStart,
@@ -37,13 +35,10 @@ public class GaussianEliminationService : IGaussianEliminationService
                     Message = $"Starting computation for {n}×{n} system..."
                 });
                 
-                // Give time for UI to update
                 await Task.Delay(MatrixConstants.InitializationDelay, cancellationToken);
                 
-                // Check for cancellation
                 cancellationToken.ThrowIfCancellationRequested();
                 
-                // Validate input
                 if (n == 0 || rightHandSide.Length != n)
                 {
                     return new MatrixSolution
@@ -54,17 +49,14 @@ public class GaussianEliminationService : IGaussianEliminationService
                     };
                 }
 
-                // Create copies to avoid modifying original arrays
                 var a = coefficients.Select(row => row.ToArray()).ToArray();
                 var b = rightHandSide.ToArray();
 
-                // Simulate delay for small matrices to show progress
                 if (n < MatrixConstants.SmallMatrixThresholdForDelay)
                 {
                     await Task.Delay(MatrixConstants.SmallMatrixBaseDelay, cancellationToken);
                 }
 
-                // Report start of forward elimination
                 progress?.Report(new ProgressInfo
                 {
                     Percent = MatrixConstants.ProgressInitEnd,
@@ -74,13 +66,10 @@ public class GaussianEliminationService : IGaussianEliminationService
                 
                 await Task.Delay(50, cancellationToken);
 
-                // Forward elimination with partial pivoting
                 for (int k = 0; k < n; k++)
                 {
-                    // Check for cancellation at each major step
                     cancellationToken.ThrowIfCancellationRequested();
                     
-                    // Find pivot
                     int maxRow = k;
                     for (int i = k + 1; i < n; i++)
                     {
@@ -90,7 +79,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                         }
                     }
 
-                    // Check for singular matrix
                     if (Math.Abs(a[maxRow][k]) < 1e-12)
                     {
                         return new MatrixSolution
@@ -101,14 +89,12 @@ public class GaussianEliminationService : IGaussianEliminationService
                         };
                     }
 
-                    // Swap rows
                     if (maxRow != k)
                     {
                         (a[k], a[maxRow]) = (a[maxRow], a[k]);
                         (b[k], b[maxRow]) = (b[maxRow], b[k]);
                     }
 
-                    // Eliminate column
                     for (int i = k + 1; i < n; i++)
                     {
                         double factor = a[i][k] / a[k][k];
@@ -119,7 +105,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                         b[i] -= factor * b[k];
                     }
 
-                    // Report progress (5% to 65%)
                     int percent = 5 + (k + 1) * 60 / n;
                     progress?.Report(new ProgressInfo
                     {
@@ -128,17 +113,14 @@ public class GaussianEliminationService : IGaussianEliminationService
                         Message = $"Eliminating column {k + 1}/{n}..."
                     });
 
-                    // Add small delay for visualization (only for smaller matrices)
                     if (n < 100 && k % 5 == 0)
                     {
                         await Task.Delay(50, cancellationToken);
                     }
                 }
 
-                // Check for cancellation before back substitution
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Report start of back substitution
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 65,
@@ -146,7 +128,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                     Message = "Performing back substitution..."
                 });
 
-                // Back substitution
                 var solution = new double[n];
                 for (int i = n - 1; i >= 0; i--)
                 {
@@ -159,7 +140,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                     }
                     solution[i] = sum / a[i][i];
                     
-                    // Check for NaN or Infinity
                     if (double.IsNaN(solution[i]) || double.IsInfinity(solution[i]))
                     {
                         return new MatrixSolution
@@ -170,7 +150,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                         };
                     }
 
-                    // Report progress (65% to 95%)
                     int percent = 65 + (n - i) * 30 / n;
                     progress?.Report(new ProgressInfo
                     {
@@ -179,14 +158,12 @@ public class GaussianEliminationService : IGaussianEliminationService
                         Message = $"Computing variable x{n - i}/{n}..."
                     });
 
-                    // Add small delay for visualization
                     if (n < 100 && i % 5 == 0)
                     {
                         await Task.Delay(30, cancellationToken);
                     }
                 }
 
-                // Finalize
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 95,
@@ -199,7 +176,6 @@ public class GaussianEliminationService : IGaussianEliminationService
                     await Task.Delay(100, cancellationToken);
                 }
 
-                // Report completion
                 progress?.Report(new ProgressInfo
                 {
                     Percent = 100,
@@ -261,7 +237,6 @@ public class GaussianEliminationService : IGaussianEliminationService
             coefficients[i] = new double[size];
             for (int j = 0; j < size; j++)
             {
-                // Generate random value in range [minValue, maxValue]
                 coefficients[i][j] = random.NextDouble() * (maxValue - minValue) + minValue;
             }
             rhs[i] = random.NextDouble() * (maxValue - minValue) + minValue;

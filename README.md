@@ -1,50 +1,145 @@
-# Web Service
+<!-- markdownlint-disable MD033 -->
 
-## Project Overview
-This web application is designed to perform computationally intensive tasks — specifically solving systems of linear equations. The application supports load balancing across multiple application servers to ensure stable operation under high request loads.
+# WebProject - Matrix Solver with Real-Time Progress and Load Balancing ⚡
 
-## Key Features
-- Limits on problem complexity (by execution time or number of unknowns).
-- Real-time progress reporting for running computations.
-- History of completed calculations and current task status.
-- Ability to cancel or start new tasks.
-- User authentication.
-- Load balancing across multiple application servers (minimum two).
+## Overview 🧠
+WebProject is an ASP.NET Core MVC application that solves systems of linear equations using Gaussian elimination and LU decomposition. It provides real-time progress updates via SignalR, asynchronous task processing via Redis-backed queues, and optional load balancing through Nginx.
 
-## How to Run (local development)
-Prerequisites:
-- .NET 9 SDK (or compatible .NET 9 runtime)
-- (Optional) Entity Framework Core tools if you need to apply migrations: `dotnet tool install --global dotnet-ef`
+This repository is designed as a portfolio-grade project that demonstrates backend architecture, distributed processing, and a production-like local setup.
 
-Run steps (from the repository root or `webProject` folder):
+## Features ✨
+- User authentication with cookie-based sessions and BCrypt password hashing.
+- Solve linear systems (NxN) with Gaussian elimination and LU decomposition.
+- Real-time progress updates and task status events via SignalR.
+- Background worker that processes queued tasks from Redis.
+- Task cancellation and per-user concurrency limits.
+- History of completed calculations with export and cleanup endpoints.
+- Optional load balancing across two app instances via Nginx.
 
-1. Restore packages:
+## Tech Stack 🧰
+- **Backend:** ASP.NET Core MVC (.NET 9)
+- **Data:** PostgreSQL, Entity Framework Core
+- **Realtime:** SignalR (Redis backplane)
+- **Queue and cache:** Redis (StackExchange.Redis)
+- **Frontend:** Razor views + vanilla JS
+- **Reverse proxy:** Nginx (optional, local load balancing)
+
+## Architecture (High Level) 🏗️
 ```
+Client (Browser)
+  |  HTTP + SignalR
+  v
+Nginx (optional)
+  |  / -> ASP.NET instances (5001, 5002)
+  |  /progressHub -> SignalR instance
+  v
+ASP.NET Core MVC
+  |  Controllers (Account, Matrix, History, Home)
+  |  Services (Gaussian, LU, Combined)
+  |  Background Worker (MatrixWorker)
+  |  EF Core DbContext (Users, CalculationHistory, DataProtectionKeys)
+  v
+PostgreSQL  <->  Redis (queue + matrix cache)
+```
+
+### Core Components 🧩
+- **`Program.cs`**: DI setup, middleware, SignalR, Redis, EF Core, hosted worker.
+- **Controllers:**
+  - `AccountController` for login/register and cookie auth.
+  - `MatrixController` for matrix generation, solving, queuing, status, cancel.
+  - `HistoryController` for history retrieval, export, and cleanup.
+  - `HomeController` for UI entry.
+- **Services:**
+  - `GaussianEliminationService`, `LUDecompositionService`, `CombinedMatrixService`.
+  - `RedisQueueService` for task queue and matrix cache.
+  - `MatrixWorker` background processor.
+  - `TaskManager` for per-user concurrency and cancellation tokens.
+- **Realtime:** `ProgressHub` publishes progress and task events.
+- **Middleware:** `ServerLoggingMiddleware` logs API and SignalR traffic.
+
+## Public API (Key Routes) 🔌
+- `POST /api/matrix/solve`
+- `POST /api/matrix/solve-stored`
+- `POST /api/matrix/queue-solve`
+- `POST /api/matrix/generate`
+- `GET /api/matrix/task-status/{taskId}`
+- `GET /api/matrix/my-tasks`
+- `GET /api/matrix/queue-stats`
+- `POST /api/matrix/cancel/{taskId}`
+- `GET /api/history`
+- `DELETE /api/history`
+- `GET /api/history/export`
+- `GET /progressHub` (SignalR hub)
+
+## Data Flow (Typical Request) 🔄
+1. User submits a matrix from the UI.
+2. The matrix is cached in Redis and a task is pushed to the queue.
+3. `MatrixWorker` dequeues the task and runs Gaussian + LU in parallel.
+4. Progress is streamed to the client via SignalR.
+5. Results and history are stored in PostgreSQL.
+
+## Local Development 🚀
+
+### Prerequisites ✅
+- .NET 9 SDK
+- PostgreSQL running on `localhost:5432`
+- Redis running on `localhost:6379`
+- LibMan (`libman`) for client library restore
+- Nginx (optional, for load balancing)
+
+### Restore and Setup 🛠️
+```bash
+# From the repository root
 dotnet restore
+
+# Restore SignalR client files
+cd webProject
+libman restore
+
+# Apply EF Core migrations
+dotnet ef database update
 ```
-2. Apply database migrations (if you want to initialize the database):
-```
-dotnet ef database update --project webProject
-```
-3. Build and run the application:
-```
-dotnet build
+
+### Run Single Instance ▶️
+```bash
+# From the repository root
 dotnet run --project webProject
 ```
 
-By default the app will listen on the ports configured in `Properties/launchSettings.json` or the environment. Use browser to open the configured URL (usually `https://localhost:5001` or similar).
+### Run Two Instances (Load Balancing) ⚖️
+```bash
+# From the repository root
+./start-server-5001.sh
+./start-server-5002.sh
+```
 
-## Project Structure (important files)
-- `Program.cs` — application entry point and host configuration.
-- `Controllers/` — ASP.NET MVC controllers (e.g., `MatrixController.cs`, `AccountController.cs`).
-- `Services/` — background or helper services (e.g., `GaussianEliminationService.cs`).
-- `Data/` — `ApplicationDbContext.cs` and EF Core migrations under `Migrations/`.
-- `Views/` — Razor views for the UI.
+### Start Nginx with Local Config (Optional) 🌐
+```bash
+# From the repository root
+sudo /opt/homebrew/opt/nginx/bin/nginx -t -c "$(pwd)/nginx.conf"
+sudo /opt/homebrew/opt/nginx/bin/nginx -c "$(pwd)/nginx.conf"
+```
 
-## Notes
-- This application is intended for demonstration and academic use. For production deployments, configure HTTPS, secure secrets (e.g., connection strings), and set up a proper load balancer (NGINX, HAProxy, cloud LB) and monitoring.
-- If you plan to run multiple instances for load balancing, ensure that any in-memory state is moved to a shared store (database, distributed cache) or use sticky sessions as appropriate.
+## Configuration ⚙️
+- Connection string lives in `webProject/appsettings.json` and `webProject/appsettings.Development.json`.
+- For production, move secrets to environment variables or user secrets.
+- Optional server metadata can be passed via `ServerInfo:ServerName` and `ServerInfo:Port`.
 
-## Author
-Andriy Kakhnovets
+## Project Structure 🗂️
+- `webProject/Program.cs`
+- `webProject/Controllers/`
+- `webProject/Services/`
+- `webProject/Models/`
+- `webProject/Data/`
+- `webProject/Views/`
+- `webProject/wwwroot/`
+- `nginx.conf`
+- `start-server-5001.sh`, `start-server-5002.sh`
+
+## Notes 📝
+- This project uses a Redis-backed task queue and SignalR backplane for real-time progress.
+- For local load balancing, run two app instances and start Nginx with `nginx.conf`.
+
+## Author 🙋‍♂️
+Andriy Kakhnovets   
 Faculty of Applied Mathematics and Informatics, Ivan Franko National University of Lviv
